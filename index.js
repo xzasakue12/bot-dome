@@ -39,6 +39,41 @@ function getYtDlpPath() {
     }
 }
 
+// ฟังก์ชันสุ่มเพลงจาก YouTube
+async function getRandomYouTubeVideo() {
+    try {
+        // คำค้นหาแนวเพลงต่างๆ ที่นิยม
+        const searchQueries = [
+            'เพลงไทยเพราะๆ',
+            'เพลงสากลเพราะๆ',
+            'top hits 2024',
+            'popular music',
+            'thai pop music',
+            'acoustic cover',
+            'chill music',
+            'lofi hip hop'
+        ];
+        
+        const randomQuery = searchQueries[Math.floor(Math.random() * searchQueries.length)];
+        console.log(`🔍 Searching YouTube for: ${randomQuery}`);
+        
+        const searchResult = await playdl.search(randomQuery, {
+            limit: 20,
+            source: { youtube: 'video' }
+        });
+        
+        if (searchResult && searchResult.length > 0) {
+            const randomIndex = Math.floor(Math.random() * searchResult.length);
+            const video = searchResult[randomIndex];
+            console.log(`✅ Found random video: ${video.title}`);
+            return video.url;
+        }
+    } catch (e) {
+        console.error('❌ Random YouTube search error:', e);
+    }
+    return null;
+}
+
 async function playNext(guildId, lastVideoId = null) {
     if (leaveTimeout) clearTimeout(leaveTimeout);
     if (global.nextTimeout) clearTimeout(global.nextTimeout);
@@ -70,7 +105,6 @@ async function playNext(guildId, lastVideoId = null) {
         let resource;
         let stream;
         
-        // ลองใช้ yt-dlp ก่อน (เสถียรกว่า)
         try {
             console.log('Attempting yt-dlp stream...');
             const ytDlpPath = getYtDlpPath();
@@ -80,15 +114,12 @@ async function playNext(guildId, lastVideoId = null) {
                 '-o', '-',
                 '--quiet',
                 '--no-warnings',
+                '--ignore-errors',  // เพิ่มบรรทัดนี้
                 cleanUrl
             ], { 
                 shell: false, 
                 windowsHide: true,
-                stdio: ['ignore', 'pipe', 'pipe']
-            });
-
-            ytdlpProcess.stderr.on('data', (data) => {
-                console.error(`yt-dlp stderr: ${data}`);
+                stdio: ['ignore', 'pipe', 'ignore']  // เปลี่ยนจาก 'pipe' เป็น 'ignore' ตัวสุดท้าย
             });
 
             ytdlpProcess.on('error', (err) => {
@@ -105,7 +136,6 @@ async function playNext(guildId, lastVideoId = null) {
         } catch (ytdlpError) {
             console.error('yt-dlp error:', ytdlpError.message);
             
-            // Fallback to play-dl
             try {
                 console.log('Attempting play-dl stream...');
                 stream = await playdl.stream(cleanUrl, { quality: 2 });
@@ -151,18 +181,13 @@ async function playNext(guildId, lastVideoId = null) {
         return;
     }
 
-    // --- Autoplay ---
+    // --- Autoplay: สุ่มจาก YouTube ---
     if (queue.length === 0 && lastVideoId) {
         console.log('🔄 Starting autoplay search...');
         global.nextTimeout = setTimeout(async () => {
             if (queue.length === 0) {
-                let nextUrl = null;
-                
-                // Fallback: สุ่มจาก playlist
-                if (fallbackPlaylist.length > 0) {
-                    nextUrl = fallbackPlaylist[Math.floor(Math.random() * fallbackPlaylist.length)];
-                    console.log('🎲 Autoplay fallback: random from playlist', nextUrl);
-                }
+                // สุ่มเพลงจาก YouTube
+                const nextUrl = await getRandomYouTubeVideo();
 
                 // หา voice channel
                 let voiceChannel;
@@ -183,7 +208,7 @@ async function playNext(guildId, lastVideoId = null) {
                             reply: (msg) => {
                                 const textChannel = guild.channels.cache.find(ch => ch.type === 0 && ch.permissionsFor(guild.members.me).has('SendMessages'));
                                 if (textChannel) {
-                                    textChannel.send(`🎵 Autoplay: ${msg}`).catch(e => console.error('Send message error:', e));
+                                    textChannel.send(`🎲 Autoplay: ${msg}`).catch(e => console.error('Send message error:', e));
                                 }
                             }
                         } 
@@ -200,7 +225,7 @@ async function playNext(guildId, lastVideoId = null) {
                     console.log('❌ No next URL or voice channel found');
                 }
             }
-        }, 3000); // ลดเวลารอเหลือ 3 วินาที
+        }, 3000);
         return;
     }
 
@@ -218,69 +243,37 @@ async function playNext(guildId, lastVideoId = null) {
     isPlaying = false;
 }
 
-// ฟังก์ชันช่วย: search เพลงจาก channel
-async function searchRandomFromChannel(channelId) {
-    try {
-        const searchResult = await playdl.search(`https://www.youtube.com/channel/${channelId}/videos`, {
-            limit: 10,
-            source: { youtube: 'video' }
-        });
-        
-        if (searchResult && searchResult.length > 0) {
-            const randomIndex = Math.floor(Math.random() * searchResult.length);
-            return searchResult[randomIndex].url;
-        }
-    } catch (e) {
-        console.log('Search channel error:', e);
-    }
-    return null;
-}
-
-// --- Fallback playlist สำหรับ autoplay ---
-const fallbackPlaylist = [
-    'https://www.youtube.com/watch?v=3JZ_D3ELwOQ', // Example: Mark Ronson - Uptown Funk
-    'https://www.youtube.com/watch?v=LsoLEjrDogU', // Example: Daft Punk - Get Lucky
-    'https://www.youtube.com/watch?v=fRh_vgS2dFE', // Example: Justin Bieber - Sorry
-    'https://www.youtube.com/watch?v=09R8_2nJtjg', // Example: Maroon 5 - Sugar
-    'https://www.youtube.com/watch?v=OPf0YbXqDm0', // Example: Mark Ronson - Uptown Funk
-    // เพิ่มลิงก์เพลงที่คุณต้องการได้ที่นี่
-];
-
 client.on('messageCreate', async (message) => {
     if (!message.content.startsWith('!play') || message.author.bot) return;
 
-    // ดึงลิงก์ YouTube แรกที่พบในข้อความ
     const urlMatch = message.content.match(/https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\S+/i);
     const url = urlMatch ? urlMatch[0].split('&')[0] : null;
-    // console.log('Extracted URL:', url);
 
     if (!url || typeof url !== 'string' || !url.startsWith('http')) {
         console.log('URL invalid or not found');
         return message.reply('กรุณาใส่ลิงก์ YouTube ที่ถูกต้อง');
     }
-    // ดึง videoId จากลิงก์ YouTube ใด ๆ
+
     let videoId;
     let cleanUrl;
     try {
         videoId = playdl.extractID(url);
         cleanUrl = `https://www.youtube.com/watch?v=${videoId}`;
-        // console.log('Extracted videoId:', videoId);
-        // console.log('Clean URL:', cleanUrl);
     } catch (e) {
         console.log('Error extracting videoId:', e);
         return message.reply('ไม่สามารถอ่านลิงก์ YouTube นี้ได้ กรุณาตรวจสอบอีกครั้ง');
     }
+
     if (!videoId) {
         console.log('No videoId found');
         return message.reply('ไม่สามารถอ่านลิงก์ YouTube นี้ได้ กรุณาตรวจสอบอีกครั้ง');
     }
-    // ตรวจสอบว่าเป็นลิงก์วิดีโอ YouTube จริง ๆ
+
     const validateResult = playdl.yt_validate(cleanUrl);
-    // console.log('yt_validate result:', validateResult);
     if (validateResult !== 'video') {
         return message.reply('กรุณาใส่ลิงก์ YouTube ที่ถูกต้อง (ต้องเป็นลิงก์วิดีโอเท่านั้น)');
     }
-    // ตรวจสอบข้อมูลวิดีโอจากลิงก์ที่สะอาดเท่านั้น
+
     let info;
     try {
         info = await playdl.video_basic_info(cleanUrl);
@@ -289,17 +282,17 @@ client.on('messageCreate', async (message) => {
             console.log('video_basic_info: invalid info', info);
             return message.reply('ไม่สามารถอ่านลิงก์ YouTube นี้ได้ กรุณาตรวจสอบอีกครั้ง');
         }
-        // cleanUrl = `https://www.youtube.com/watch?v=${info.video_details.id}`; // ไม่ต้องเซ็ตซ้ำ
     } catch (e) {
         console.log('video_basic_info error:', e);
         return message.reply('ไม่สามารถอ่านลิงก์ YouTube นี้ได้ กรุณาตรวจสอบอีกครั้ง');
     }
+
     const voiceChannel = message.member.voice.channel;
     if (!voiceChannel) return message.reply('คุณต้องอยู่ในห้องเสียงก่อน');
 
-    // --- เพิ่มเข้า queue ---
     queue.push({ cleanUrl, voiceChannel, message });
-    message.reply('กุอยากเพิ่มเพลงแล้วจะทำไหม!');
+    message.reply('✅ เพิ่มเพลงเข้าคิวแล้ว!');
+    
     if (!isPlaying) {
         playNext(voiceChannel.guild.id);
     }
@@ -308,8 +301,8 @@ client.on('messageCreate', async (message) => {
 client.on('messageCreate', (message) => {
     if (message.content.startsWith('!skip') && !message.author.bot) {
         if (currentPlayer) {
-            currentPlayer.stop(); // จะ trigger playNext() อัตโนมัติ
-            message.reply('กุอยากฟังอีกเพลงแล้วไอเวร!');
+            currentPlayer.stop();
+            message.reply('⏭️ ข้ามเพลงแล้ว!');
         } else {
             message.reply('ไม่มีเพลงที่กำลังเล่นอยู่');
         }
