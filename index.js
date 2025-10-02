@@ -70,52 +70,53 @@ async function playNext(guildId, lastVideoId = null) {
         let resource;
         let stream;
         
+        // ลองใช้ yt-dlp ก่อน (เสถียรกว่า)
         try {
-            console.log('Attempting play-dl stream...');
-            stream = await playdl.stream(cleanUrl, { quality: 2 });
-            resource = createAudioResource(stream.stream, { 
-                inputType: stream.type,
-                inlineVolume: true 
+            console.log('Attempting yt-dlp stream...');
+            const ytDlpPath = getYtDlpPath();
+            const ytdlpProcess = spawn(ytDlpPath, [
+                '-f', 'bestaudio',
+                '--no-playlist',
+                '-o', '-',
+                '--quiet',
+                '--no-warnings',
+                cleanUrl
+            ], { 
+                shell: false, 
+                windowsHide: true,
+                stdio: ['ignore', 'pipe', 'pipe']
             });
-            console.log('✅ play-dl stream success');
-            message.reply(`🎵 กำลังเล่น: ${cleanUrl}`);
-        } catch (error) {
-            console.error('play-dl error:', error.message);
+
+            ytdlpProcess.stderr.on('data', (data) => {
+                console.error(`yt-dlp stderr: ${data}`);
+            });
+
+            ytdlpProcess.on('error', (err) => {
+                console.error('yt-dlp process error:', err);
+            });
+
+            resource = createAudioResource(ytdlpProcess.stdout, {
+                inputType: 'arbitrary',
+                inlineVolume: true
+            });
             
-            // Fallback to yt-dlp
+            console.log('✅ yt-dlp stream started');
+            message.reply(`🎵 กำลังเล่น: ${cleanUrl}`);
+        } catch (ytdlpError) {
+            console.error('yt-dlp error:', ytdlpError.message);
+            
+            // Fallback to play-dl
             try {
-                console.log('Attempting yt-dlp stream...');
-                const ytDlpPath = getYtDlpPath();
-                const ytdlpProcess = spawn(ytDlpPath, [
-                    '-f', 'bestaudio',
-                    '--no-playlist',
-                    '-o', '-',
-                    '--quiet',
-                    '--no-warnings',
-                    cleanUrl
-                ], { 
-                    shell: false, 
-                    windowsHide: true,
-                    stdio: ['ignore', 'pipe', 'pipe']
+                console.log('Attempting play-dl stream...');
+                stream = await playdl.stream(cleanUrl, { quality: 2 });
+                resource = createAudioResource(stream.stream, { 
+                    inputType: stream.type,
+                    inlineVolume: true 
                 });
-
-                ytdlpProcess.stderr.on('data', (data) => {
-                    console.error(`yt-dlp stderr: ${data}`);
-                });
-
-                ytdlpProcess.on('error', (err) => {
-                    console.error('yt-dlp process error:', err);
-                });
-
-                resource = createAudioResource(ytdlpProcess.stdout, {
-                    inputType: 'arbitrary',
-                    inlineVolume: true
-                });
-                
-                console.log('✅ yt-dlp stream started');
-                message.reply(`🎵 กำลังเล่น (yt-dlp): ${cleanUrl}`);
-            } catch (ytdlpError) {
-                console.error('yt-dlp creation error:', ytdlpError);
+                console.log('✅ play-dl stream success');
+                message.reply(`🎵 กำลังเล่น (play-dl): ${cleanUrl}`);
+            } catch (error) {
+                console.error('play-dl error:', error.message);
                 message.reply('❌ ไม่สามารถเล่นเพลงนี้ได้');
                 isPlaying = false;
                 return playNext(guildId, lastVideoId);
