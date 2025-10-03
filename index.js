@@ -42,16 +42,20 @@ function getYtDlpPath() {
 // ฟังก์ชันสุ่มเพลงจาก YouTube
 async function getRandomYouTubeVideo() {
     try {
-        // คำค้นหาแนวเพลงต่างๆ ที่นิยม
+        // คำค้นหาแนวเพลง Anime ญี่ปุ่น และ Rap ไทย
         const searchQueries = [
-            'เพลงไทยเพราะๆ',
-            'เพลงสากลเพราะๆ',
-            'top hits 2024',
-            'popular music',
-            'thai pop music',
-            'acoustic cover',
-            'chill music',
-            'lofi hip hop'
+            'anime opening',
+            'anime ending',
+            'japanese anime song',
+            'anime ost',
+            'j-pop anime',
+            'anime music',
+            'แร็พไทย',
+            'thai rap',
+            'rap thai',
+            'ไทยแร็พ',
+            'thai hiphop',
+            'แร็พเพลงไทย'
         ];
         
         const randomQuery = searchQueries[Math.floor(Math.random() * searchQueries.length)];
