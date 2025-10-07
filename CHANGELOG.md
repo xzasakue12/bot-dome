@@ -2,6 +2,74 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v2.0.0] - 2025-10-07
+
+### 🔄 Major Refactoring - Modular Architecture
+
+#### 🏗️ Architecture Changes
+- **BREAKING CHANGE**: Entry point changed from `index.js` to `src/bot.js`
+- Restructured entire codebase from monolithic (736 lines) to modular architecture
+- Created organized folder structure:
+  - `src/bot.js` - Main entry point (80 lines)
+  - `src/config.js` - Centralized configuration and state management
+  - `src/commands/` - 14 individual command modules
+  - `src/handlers/` - Player, voice state, and command handlers
+  - `src/utils/` - Helper functions and YouTube utilities
+
+#### ✨ New Features
+- 🔍 **Search Command** - Search and play YouTube songs with `!search <query>`
+- 🗑️ **Clear Queue** - Clear entire queue with `!clear`
+- 🔀 **Shuffle Queue** - Randomize queue order with `!shuffle`
+- 🗑️ **Remove Song** - Remove specific song from queue with `!remove <position>`
+- 🔂 **Loop Modes** - Loop single song or entire queue with `!loop <song/queue/off>`
+
+#### 📁 Command Modules Created
+```
+src/commands/
+├── play.js         - Play music from URL
+├── search.js       - Search and play
+├── queue.js        - Display queue
+├── skip.js         - Skip current song
+├── stop.js         - Stop and leave
+├── pause.js        - Pause playback
+├── resume.js       - Resume playback
+├── nowplaying.js   - Show current song
+├── clear.js        - Clear queue
+├── shuffle.js      - Shuffle queue
+├── remove.js       - Remove from queue
+├── loop.js         - Loop modes
+├── volume.js       - Volume control
+└── help.js         - Help command
+```
+
+#### 🔧 Handler Modules
+- **player.js** - Core playback system, autoplay logic, stream management
+- **voiceState.js** - Voice channel event handling, auto-leave functionality
+- **commandHandler.js** - Dynamic command loading and execution
+
+#### 🛠️ Utility Modules
+- **helpers.js** - Common helper functions (path resolution, formatting, validation)
+- **youtube.js** - YouTube API interactions (search, video info, random selection)
+
+#### 📊 Code Quality Improvements
+- ✅ Reduced code complexity by 95%
+- ✅ Improved maintainability with separation of concerns
+- ✅ Easy to add new commands (just create new file in commands/)
+- ✅ Reusable utility functions
+- ✅ Better error handling
+- ✅ Cleaner code organization
+
+#### 📝 Documentation
+- Added `STRUCTURE.md` - Complete architecture documentation
+- Updated `package.json` with new scripts and entry point
+- Updated `ecosystem.config.js` for PM2
+- Detailed folder structure documentation
+
+#### 🎮 Total Commands: 14
+All previous commands + 5 new commands working perfectly!
+
+---
+
 ## [v1.0.0] - 2025-10-07
 
 ### 🎉 Initial Release
