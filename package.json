@@ -1,6 +1,6 @@
 {
   "name": "my-discord-music-bot",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "main": "src/bot.js",
   "description": "Full-featured Discord Music Bot with queue management, volume control, and auto-play",
   "scripts": {

@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v2.1.0] - 2025-10-07
+
+### ✨ New Features - Enhanced Control & Information
+
+#### 🎮 New Commands (6 commands added)
+- ⏭️ **!skipto <position>** - Skip to specific song in queue
+- 🎲 **!autoplay <on/off>** - Toggle autoplay feature
+- 🎤 **!lyrics** - Show lyrics link for current song
+- 📊 **!stats** - Display bot statistics (uptime, memory, servers, music status)
+- 🔊 **!join** - Join voice channel without playing
+- 👋 **!leave** - Leave voice channel immediately
+
+#### 🔧 Improvements
+- Added `autoplayEnabled` setting to config for user control
+- Updated help command with all 20 commands
+- Enhanced player.js to check autoplay status before starting
+- Better bot statistics tracking
+
+#### 📊 Total Commands: 20
+Increased from 14 to 20 commands!
+
+**Command Categories:**
+- 🎵 Playback Control: 7 commands
+- 📋 Queue Management: 5 commands  
+- 🎮 Bot Control: 3 commands
+- ℹ️ Information: 5 commands
+
+---
+
 ## [v2.0.0] - 2025-10-07
 
 ### 🔄 Major Refactoring - Modular Architecture
