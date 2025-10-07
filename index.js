@@ -23,6 +23,41 @@ client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}`);
 });
 
+// ตรวจสอบว่ามีคนในห้องเสียงหรือไม่ (ไม่นับบอท)
+function checkVoiceChannelEmpty(voiceChannel) {
+    if (!voiceChannel) return true;
+    
+    // นับจำนวนสมาชิกที่ไม่ใช่บอท
+    const humanMembers = voiceChannel.members.filter(member => !member.user.bot);
+    return humanMembers.size === 0;
+}
+
+// ฟังก์ชันออกจากห้องเสียงถ้าไม่มีคน
+function checkAndLeaveIfEmpty(voiceChannel) {
+    if (checkVoiceChannelEmpty(voiceChannel)) {
+        console.log('👤 No humans in voice channel, leaving...');
+        if (currentConnection) {
+            currentConnection.destroy();
+            currentConnection = null;
+        }
+        if (currentPlayer) {
+            currentPlayer.stop();
+            currentPlayer = null;
+        }
+        // ล้างคิว
+        queue.length = 0;
+        isPlaying = false;
+        lastPlayedVideoId = null;
+        
+        // ส่งข้อความแจ้งเตือน
+        if (lastTextChannel) {
+            lastTextChannel.send('👋 ไม่มีคนในห้องเสียงแล้ว บอทออกจากห้องแล้วนะ').catch(e => console.error('Send message error:', e));
+        }
+        return true;
+    }
+    return false;
+}
+
 // --- เพิ่มระบบคิวเพลง ---
 const queue = [];
 let isPlaying = false;
@@ -30,6 +65,9 @@ let currentConnection = null;
 let currentPlayer = null;
 let leaveTimeout = null;
 let lastPlayedVideoId = null;
+let lastTextChannel = null; // เก็บช่องข้อความที่ใช้งานล่าสุด
+let currentSong = null; // เก็บข้อมูลเพลงที่กำลังเล่น
+let isPaused = false; // สถานะ pause
 
 function getYtDlpPath() {
     if (process.platform === 'win32') {
@@ -88,8 +126,17 @@ async function playNext(guildId, lastVideoId = null) {
 
     if (queue.length > 0) {
         isPlaying = true;
-        const { cleanUrl, voiceChannel, message } = queue.shift();
+        isPaused = false;
+        const { cleanUrl, voiceChannel, message, textChannel, title } = queue.shift();
         console.log('🎵 Playing from queue:', cleanUrl);
+        
+        // เก็บข้อมูลเพลงปัจจุบัน
+        currentSong = { cleanUrl, title: title || cleanUrl, voiceChannel };
+        
+        // อัปเดตช่องข้อความล่าสุด
+        if (textChannel) {
+            lastTextChannel = textChannel;
+        }
         
         let videoId = null;
         try {
@@ -136,7 +183,7 @@ async function playNext(guildId, lastVideoId = null) {
             });
             
             console.log('✅ yt-dlp stream started');
-            message.reply(`🎵 กำลังเล่น: ${cleanUrl}`);
+            message.reply(`🎵 กำลังเล่น: ${title || cleanUrl}`);
         } catch (ytdlpError) {
             console.error('yt-dlp error:', ytdlpError.message);
             
@@ -148,7 +195,7 @@ async function playNext(guildId, lastVideoId = null) {
                     inlineVolume: true 
                 });
                 console.log('✅ play-dl stream success');
-                message.reply(`🎵 กำลังเล่น (play-dl): ${cleanUrl}`);
+                message.reply(`🎵 กำลังเล่น (play-dl): ${title || cleanUrl}`);
             } catch (error) {
                 console.error('play-dl error:', error.message);
                 message.reply('❌ ไม่สามารถเล่นเพลงนี้ได้');
@@ -173,6 +220,12 @@ async function playNext(guildId, lastVideoId = null) {
 
         player.on(AudioPlayerStatus.Idle, () => {
             console.log('⏹️ Player idle, playing next...');
+            
+            // ตรวจสอบว่ายังมีคนในห้องเสียงหรือไม่ก่อนเล่นเพลงต่อ
+            if (voiceChannel && checkAndLeaveIfEmpty(voiceChannel)) {
+                return;
+            }
+            
             playNext(guildId, videoId);
         });
 
@@ -207,12 +260,19 @@ async function playNext(guildId, lastVideoId = null) {
                     console.log('✅ Adding autoplay song to queue:', nextUrl);
                     queue.push({ 
                         cleanUrl: nextUrl, 
-                        voiceChannel, 
+                        voiceChannel,
+                        textChannel: lastTextChannel, // ใช้ช่องข้อความเดิม
                         message: { 
                             reply: (msg) => {
-                                const textChannel = guild.channels.cache.find(ch => ch.type === 0 && ch.permissionsFor(guild.members.me).has('SendMessages'));
-                                if (textChannel) {
-                                    textChannel.send(`🎲 Autoplay: ${msg}`).catch(e => console.error('Send message error:', e));
+                                // ใช้ช่องข้อความที่จำไว้
+                                if (lastTextChannel) {
+                                    lastTextChannel.send(`🎲 Autoplay: ${msg}`).catch(e => console.error('Send message error:', e));
+                                } else {
+                                    // Fallback: หาช่องข้อความที่ใช้ได้
+                                    const textChannel = guild.channels.cache.find(ch => ch.type === 0 && ch.permissionsFor(guild.members.me).has('SendMessages'));
+                                    if (textChannel) {
+                                        textChannel.send(`🎲 Autoplay: ${msg}`).catch(e => console.error('Send message error:', e));
+                                    }
                                 }
                             }
                         } 
@@ -294,8 +354,22 @@ client.on('messageCreate', async (message) => {
     const voiceChannel = message.member.voice.channel;
     if (!voiceChannel) return message.reply('คุณต้องอยู่ในห้องเสียงก่อน');
 
-    queue.push({ cleanUrl, voiceChannel, message });
-    message.reply('✅ เพิ่มเพลงเข้าคิวแล้ว!');
+    // เก็บช่องข้อความที่ใช้งาน
+    lastTextChannel = message.channel;
+
+    // ดึงข้อมูลเพลง
+    let songTitle = cleanUrl;
+    try {
+        const videoInfo = await playdl.video_info(cleanUrl);
+        if (videoInfo && videoInfo.video_details) {
+            songTitle = videoInfo.video_details.title;
+        }
+    } catch (e) {
+        console.log('Cannot get video title:', e);
+    }
+
+    queue.push({ cleanUrl, voiceChannel, message, textChannel: message.channel, title: songTitle });
+    message.reply(`✅ เพิ่มเพลงเข้าคิวแล้ว: **${songTitle}**`);
     
     if (!isPlaying) {
         playNext(voiceChannel.guild.id);
@@ -303,13 +377,193 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('messageCreate', (message) => {
-    if (message.content.startsWith('!skip') && !message.author.bot) {
+    if (message.author.bot) return;
+
+    // คำสั่ง !skip
+    if (message.content.startsWith('!skip')) {
         if (currentPlayer) {
             currentPlayer.stop();
             message.reply('⏭️ ข้ามเพลงแล้ว!');
         } else {
             message.reply('ไม่มีเพลงที่กำลังเล่นอยู่');
         }
+    }
+
+    // คำสั่ง !queue - ดูคิวเพลง
+    if (message.content.startsWith('!queue')) {
+        if (queue.length === 0 && !currentSong) {
+            return message.reply('📭 ไม่มีเพลงในคิว');
+        }
+
+        let queueMessage = '📋 **คิวเพลง**\n\n';
+        
+        if (currentSong) {
+            queueMessage += `🎵 **กำลังเล่น:** ${currentSong.title}\n\n`;
+        }
+
+        if (queue.length > 0) {
+            queueMessage += '**ถัดไป:**\n';
+            queue.forEach((song, index) => {
+                queueMessage += `${index + 1}. ${song.title || song.cleanUrl}\n`;
+            });
+            queueMessage += `\n📊 **รวมทั้งหมด:** ${queue.length} เพลง`;
+        } else {
+            queueMessage += '✨ ไม่มีเพลงถัดไป (Autoplay จะเริ่มทำงาน)';
+        }
+
+        message.reply(queueMessage);
+    }
+
+    // คำสั่ง !nowplaying - ดูเพลงที่กำลังเล่น
+    if (message.content.startsWith('!nowplaying') || message.content.startsWith('!np')) {
+        if (!currentSong) {
+            return message.reply('ไม่มีเพลงที่กำลังเล่นอยู่');
+        }
+
+        message.reply(`🎵 **กำลังเล่น:** ${currentSong.title}\n🔗 ${currentSong.cleanUrl}`);
+    }
+
+    // คำสั่ง !stop - หยุดและล้างคิว
+    if (message.content.startsWith('!stop')) {
+        if (!currentPlayer && queue.length === 0) {
+            return message.reply('ไม่มีเพลงที่กำลังเล่นอยู่');
+        }
+
+        // ล้างคิว
+        queue.length = 0;
+        
+        // หยุดเล่น
+        if (currentPlayer) {
+            currentPlayer.stop();
+        }
+
+        // ออกจากห้อง
+        if (currentConnection) {
+            currentConnection.destroy();
+            currentConnection = null;
+        }
+
+        isPlaying = false;
+        currentSong = null;
+        lastPlayedVideoId = null;
+
+        message.reply('⏹️ หยุดเล่นและล้างคิวแล้ว!');
+    }
+
+    // คำสั่ง !pause - หยุดชั่วคราว
+    if (message.content.startsWith('!pause')) {
+        if (!currentPlayer) {
+            return message.reply('ไม่มีเพลงที่กำลังเล่นอยู่');
+        }
+
+        if (isPaused) {
+            return message.reply('เพลงถูกหยุดอยู่แล้ว');
+        }
+
+        currentPlayer.pause();
+        isPaused = true;
+        message.reply('⏸️ หยุดเพลงชั่วคราว');
+    }
+
+    // คำสั่ง !resume - เล่นต่อ
+    if (message.content.startsWith('!resume')) {
+        if (!currentPlayer) {
+            return message.reply('ไม่มีเพลงที่กำลังเล่นอยู่');
+        }
+
+        if (!isPaused) {
+            return message.reply('เพลงกำลังเล่นอยู่แล้ว');
+        }
+
+        currentPlayer.unpause();
+        isPaused = false;
+        message.reply('▶️ เล่นเพลงต่อ');
+    }
+
+    // คำสั่ง !volume - ปรับระดับเสียง
+    if (message.content.startsWith('!volume')) {
+        const args = message.content.split(' ');
+        
+        if (!currentPlayer) {
+            return message.reply('ไม่มีเพลงที่กำลังเล่นอยู่');
+        }
+
+        if (args.length < 2) {
+            return message.reply('กรุณาระบุระดับเสียง (0-100)\nตัวอย่าง: `!volume 50`');
+        }
+
+        const volume = parseInt(args[1]);
+        
+        if (isNaN(volume) || volume < 0 || volume > 100) {
+            return message.reply('❌ ระดับเสียงต้องอยู่ระหว่าง 0-100');
+        }
+
+        try {
+            const resource = currentPlayer.state.resource;
+            if (resource && resource.volume) {
+                resource.volume.setVolume(volume / 100);
+                message.reply(`🔊 ปรับระดับเสียงเป็น ${volume}%`);
+            } else {
+                message.reply('❌ ไม่สามารถปรับระดับเสียงได้ในขณะนี้');
+            }
+        } catch (e) {
+            console.error('Volume error:', e);
+            message.reply('❌ เกิดข้อผิดพลาดในการปรับระดับเสียง');
+        }
+    }
+
+    // คำสั่ง !help - แสดงความช่วยเหลือ
+    if (message.content.startsWith('!help')) {
+        const helpMessage = `
+🎵 **คำสั่งบอทเพลง Discord** 🎵
+
+**📀 การเล่นเพลง**
+\`!play <YouTube URL>\` - เล่นเพลงจาก YouTube
+\`!skip\` - ข้ามเพลงปัจจุบัน
+\`!stop\` - หยุดเล่นและล้างคิวทั้งหมด
+\`!pause\` - หยุดเพลงชั่วคราว
+\`!resume\` - เล่นเพลงต่อ
+
+**📋 การจัดการคิว**
+\`!queue\` - ดูรายการเพลงในคิว
+\`!nowplaying\` หรือ \`!np\` - ดูเพลงที่กำลังเล่น
+
+**🔊 การตั้งค่า**
+\`!volume <0-100>\` - ปรับระดับเสียง (ตัวอย่าง: !volume 50)
+
+**✨ ฟีเจอร์พิเศษ**
+🎲 **Autoplay** - สุ่มเพลง Anime และแร็พไทยอัตโนมัติ
+👋 **Auto-leave** - ออกจากห้องเมื่อไม่มีคนหรือไม่มีเพลง
+
+**💡 เคล็ดลับ**
+- บอทจะออกจากห้องอัตโนมัติเมื่อไม่มีคนอยู่
+- ระบบ Autoplay จะเริ่มทำงานเมื่อคิวว่าง
+        `.trim();
+        
+        message.reply(helpMessage);
+    }
+});
+
+// ตรวจจับเมื่อมีคนออกจากห้องเสียง
+client.on('voiceStateUpdate', (oldState, newState) => {
+    // ตรวจสอบว่าบอทอยู่ในห้องเสียงหรือไม่
+    if (!currentConnection) return;
+    
+    const botMember = newState.guild.members.me;
+    if (!botMember || !botMember.voice || !botMember.voice.channel) return;
+    
+    const botVoiceChannel = botMember.voice.channel;
+    
+    // ตรวจสอบว่ามีคนออกจากห้องที่บอทอยู่หรือไม่
+    if (oldState.channelId === botVoiceChannel.id && newState.channelId !== botVoiceChannel.id) {
+        console.log(`👤 User left voice channel: ${oldState.member.user.tag}`);
+        
+        // รอสักครู่แล้วตรวจสอบว่ายังมีคนหรือไม่
+        setTimeout(() => {
+            if (checkAndLeaveIfEmpty(botVoiceChannel)) {
+                console.log('✅ Bot left because no humans remain');
+            }
+        }, 2000); // รอ 2 วินาที เผื่อคนกำลังย้ายห้อง
     }
 });
 
