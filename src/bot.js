@@ -17,14 +17,14 @@ const client = new Client({
 });
 
 // ตั้งค่า play-dl cookie
-if (process.env.YOUTUBE_COOKIE) {
+if (process.env.YOUTUBE_COOKIE || process.env.YT_COOKIE) {
     playdl.setToken({
         youtube: {
-            apikey: 'AIzaSyDOrOi3nZH-rq4Ie9y6V6CVqo-a0ZhsRgI',
-            // cookie: process.env.YOUTUBE_COOKIE
+            apikey: process.env.YOUTUBE_API_KEY,
+            // cookie: process.env.YOUTUBE_COOKIE || process.env.YT_COOKIE
         }
     });
-    console.log('✅ YouTube cookie loaded');
+    console.log('✅ YouTube API key and cookie loaded');
 }
 
 // โหลดคำสั่งทั้งหมด
