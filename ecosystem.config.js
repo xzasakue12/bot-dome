@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: "my-discord-music-bot",
-      script: "index.js",
+      script: "src/bot.js",
       cwd: "C:/Users/xzasakue12/my-discord-music-bot",
       watch: true, // เปิด auto restart เมื่อไฟล์เปลี่ยน
       ignore_watch: [
