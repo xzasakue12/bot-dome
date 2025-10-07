@@ -2,13 +2,23 @@
   "name": "my-discord-music-bot",
   "version": "1.0.0",
   "main": "index.js",
+  "description": "Full-featured Discord Music Bot with queue management, volume control, and auto-play",
   "scripts": {
+    "start": "node index.js",
+    "pm2": "pm2 start index.js --name my-discord-music-bot",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "discord",
+    "bot",
+    "music",
+    "youtube",
+    "discord-bot",
+    "music-bot",
+    "discord.js"
+  ],
+  "author": "xzasakue12",
   "license": "ISC",
-  "description": "",
   "dependencies": {
     "@discordjs/opus": "^0.10.0",
     "@discordjs/voice": "^0.18.0",
