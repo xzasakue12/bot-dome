@@ -68,6 +68,8 @@ let lastPlayedVideoId = null;
 let lastTextChannel = null; // เก็บช่องข้อความที่ใช้งานล่าสุด
 let currentSong = null; // เก็บข้อมูลเพลงที่กำลังเล่น
 let isPaused = false; // สถานะ pause
+let loopMode = 'off'; // 'off', 'song', 'queue'
+let originalQueue = []; // เก็บคิวเดิมสำหรับ loop queue
 
 function getYtDlpPath() {
     if (process.platform === 'win32') {
@@ -226,6 +228,21 @@ async function playNext(guildId, lastVideoId = null) {
                 return;
             }
             
+            // ตรวจสอบ loop mode
+            if (loopMode === 'song' && currentSong) {
+                // เล่นเพลงเดิมซ้ำ
+                queue.unshift({ 
+                    cleanUrl: currentSong.cleanUrl, 
+                    voiceChannel: currentSong.voiceChannel, 
+                    message: { reply: (msg) => {} }, // ไม่แสดงข้อความ
+                    textChannel: lastTextChannel,
+                    title: currentSong.title 
+                });
+            } else if (loopMode === 'queue' && queue.length === 0 && originalQueue.length > 0) {
+                // เมื่อคิวหมด ให้โหลดคิวเดิมกลับมา
+                originalQueue.forEach(song => queue.push({...song}));
+            }
+            
             playNext(guildId, videoId);
         });
 
@@ -376,7 +393,7 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-client.on('messageCreate', (message) => {
+client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
     // คำสั่ง !skip
@@ -519,6 +536,7 @@ client.on('messageCreate', (message) => {
 
 **📀 การเล่นเพลง**
 \`!play <YouTube URL>\` - เล่นเพลงจาก YouTube
+\`!search <คำค้นหา>\` - ค้นหาและเล่นเพลง
 \`!skip\` - ข้ามเพลงปัจจุบัน
 \`!stop\` - หยุดเล่นและล้างคิวทั้งหมด
 \`!pause\` - หยุดเพลงชั่วคราว
@@ -527,6 +545,14 @@ client.on('messageCreate', (message) => {
 **📋 การจัดการคิว**
 \`!queue\` - ดูรายการเพลงในคิว
 \`!nowplaying\` หรือ \`!np\` - ดูเพลงที่กำลังเล่น
+\`!clear\` - ล้างคิวทั้งหมด (ไม่หยุดเพลงปัจจุบัน)
+\`!shuffle\` - สับเปลี่ยนลำดับคิว
+\`!remove <ลำดับ>\` - ลบเพลงออกจากคิว
+
+**🔁 การเล่นซ้ำ**
+\`!loop song\` - เล่นเพลงปัจจุบันซ้ำ
+\`!loop queue\` - เล่นคิวทั้งหมดซ้ำ
+\`!loop off\` - ปิดการเล่นซ้ำ
 
 **🔊 การตั้งค่า**
 \`!volume <0-100>\` - ปรับระดับเสียง (ตัวอย่าง: !volume 50)
@@ -541,6 +567,145 @@ client.on('messageCreate', (message) => {
         `.trim();
         
         message.reply(helpMessage);
+    }
+
+    // คำสั่ง !clear - ล้างคิว (ไม่หยุดเพลงปัจจุบัน)
+    if (message.content.startsWith('!clear')) {
+        if (queue.length === 0) {
+            return message.reply('📭 คิวว่างอยู่แล้ว');
+        }
+
+        const clearedCount = queue.length;
+        queue.length = 0;
+        originalQueue.length = 0;
+        message.reply(`🗑️ ล้างคิวแล้ว ${clearedCount} เพลง (เพลงปัจจุบันยังเล่นอยู่)`);
+    }
+
+    // คำสั่ง !shuffle - สับเปลี่ยนลำดับคิว
+    if (message.content.startsWith('!shuffle')) {
+        if (queue.length < 2) {
+            return message.reply('❌ ต้องมีอย่างน้อย 2 เพลงในคิวถึงจะสับได้');
+        }
+
+        // Fisher-Yates shuffle algorithm
+        for (let i = queue.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [queue[i], queue[j]] = [queue[j], queue[i]];
+        }
+
+        message.reply(`🔀 สับเปลี่ยนคิวแล้ว ${queue.length} เพลง`);
+    }
+
+    // คำสั่ง !remove - ลบเพลงออกจากคิว
+    if (message.content.startsWith('!remove')) {
+        const args = message.content.split(' ');
+        
+        if (args.length < 2) {
+            return message.reply('กรุณาระบุลำดับเพลง\nตัวอย่าง: `!remove 3`');
+        }
+
+        const position = parseInt(args[1]);
+
+        if (isNaN(position) || position < 1 || position > queue.length) {
+            return message.reply(`❌ ลำดับต้องอยู่ระหว่าง 1-${queue.length}`);
+        }
+
+        const removed = queue.splice(position - 1, 1)[0];
+        message.reply(`🗑️ ลบเพลงออกแล้ว: **${removed.title || removed.cleanUrl}**`);
+    }
+
+    // คำสั่ง !loop - เล่นซ้ำ
+    if (message.content.startsWith('!loop')) {
+        const args = message.content.split(' ');
+        
+        if (args.length < 2) {
+            return message.reply(`🔁 สถานะการเล่นซ้ำ: **${loopMode}**\n\nใช้:\n\`!loop song\` - เล่นเพลงปัจจุบันซ้ำ\n\`!loop queue\` - เล่นคิวทั้งหมดซ้ำ\n\`!loop off\` - ปิดการเล่นซ้ำ`);
+        }
+
+        const mode = args[1].toLowerCase();
+
+        if (mode === 'song') {
+            if (!currentSong) {
+                return message.reply('❌ ไม่มีเพลงที่กำลังเล่นอยู่');
+            }
+            loopMode = 'song';
+            message.reply('🔂 เปิดการเล่นซ้ำ: **เพลงปัจจุบัน**');
+        } else if (mode === 'queue') {
+            if (queue.length === 0 && !currentSong) {
+                return message.reply('❌ ไม่มีเพลงในคิว');
+            }
+            loopMode = 'queue';
+            // บันทึกคิวปัจจุบัน
+            originalQueue = queue.map(song => ({...song}));
+            message.reply('🔁 เปิดการเล่นซ้ำ: **คิวทั้งหมด**');
+        } else if (mode === 'off') {
+            loopMode = 'off';
+            originalQueue.length = 0;
+            message.reply('▶️ ปิดการเล่นซ้ำแล้ว');
+        } else {
+            message.reply('❌ โหมดไม่ถูกต้อง ใช้: `song`, `queue`, หรือ `off`');
+        }
+    }
+
+    // คำสั่ง !search - ค้นหาเพลง
+    if (message.content.startsWith('!search')) {
+        const args = message.content.slice(8).trim();
+        
+        if (!args) {
+            return message.reply('กรุณาใส่คำค้นหา\nตัวอย่าง: `!search naruto opening`');
+        }
+
+        const voiceChannel = message.member.voice.channel;
+        if (!voiceChannel) {
+            return message.reply('คุณต้องอยู่ในห้องเสียงก่อน');
+        }
+
+        message.reply(`🔍 กำลังค้นหา: **${args}**`);
+
+        try {
+            const searchResult = await playdl.search(args, {
+                limit: 5,
+                source: { youtube: 'video' }
+            });
+
+            if (!searchResult || searchResult.length === 0) {
+                return message.reply('❌ ไม่พบผลลัพธ์');
+            }
+
+            // แสดงผลลัพธ์
+            let resultMessage = '🔎 **ผลการค้นหา:**\n\n';
+            searchResult.forEach((video, index) => {
+                const duration = video.durationRaw || 'N/A';
+                resultMessage += `**${index + 1}.** ${video.title}\n⏱️ ${duration}\n\n`;
+            });
+            resultMessage += 'กำลังเล่นเพลงแรก... ใช้ `!search` อีกครั้งเพื่อเลือกเพลงอื่น';
+
+            await message.reply(resultMessage);
+
+            // เล่นเพลงแรก
+            const firstVideo = searchResult[0];
+            const cleanUrl = firstVideo.url;
+            const songTitle = firstVideo.title;
+
+            lastTextChannel = message.channel;
+            queue.push({ 
+                cleanUrl, 
+                voiceChannel, 
+                message, 
+                textChannel: message.channel, 
+                title: songTitle 
+            });
+
+            if (!isPlaying) {
+                playNext(voiceChannel.guild.id);
+            } else {
+                message.reply(`✅ เพิ่มเข้าคิว: **${songTitle}**`);
+            }
+
+        } catch (error) {
+            console.error('Search error:', error);
+            message.reply('❌ เกิดข้อผิดพลาดในการค้นหา');
+        }
     }
 });
 
