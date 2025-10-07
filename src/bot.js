@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: '/etc/secrets/.env' }); 
 const { Client, GatewayIntentBits } = require('discord.js');
 const playdl = require('play-dl');
 const config = require('./config');
