@@ -20,7 +20,8 @@ const client = new Client({
 if (process.env.YOUTUBE_COOKIE) {
     playdl.setToken({
         youtube: {
-            cookie: process.env.YOUTUBE_COOKIE
+            apikey: 'AIzaSyDOrOi3nZH-rq4Ie9y6V6CVqo-a0ZhsRgI',
+            // cookie: process.env.YOUTUBE_COOKIE
         }
     });
     console.log('✅ YouTube cookie loaded');
