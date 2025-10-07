@@ -39,6 +39,7 @@ module.exports = {
     
     // ตั้งค่าต่างๆ
     settings: {
+        prefix: '!', // คำนำหน้าคำสั่ง
         leaveTimeout: 60000, // 60 วินาที
         autoplayDelay: 3000, // 3 วินาที
         voiceChannelCheckDelay: 2000 // 2 วินาที
