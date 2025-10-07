@@ -184,7 +184,7 @@ async function playNext(guildId, lastVideoId = null) {
     }
 
     // --- Autoplay: สุ่มจาก YouTube ---
-    if (config.queue.length === 0 && lastVideoId) {
+    if (config.queue.length === 0 && lastVideoId && config.settings.autoplayEnabled) {
         console.log('🔄 Starting autoplay search...');
         global.nextTimeout = setTimeout(async () => {
             if (config.queue.length === 0) {
