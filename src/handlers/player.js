@@ -251,6 +251,27 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 }
 
 /**
+ * Add a utility function to wait for the voice connection to be ready
+ */
+async function waitForConnectionReady(connection, timeout = 10000) {
+    return new Promise((resolve, reject) => {
+        const startTime = Date.now();
+
+        function checkReady() {
+            if (connection.state.status === 'ready') {
+                resolve();
+            } else if (Date.now() - startTime > timeout) {
+                reject(new Error('Voice connection not ready within timeout.'));
+            } else {
+                setTimeout(checkReady, 100); // Check again after 100ms
+            }
+        }
+
+        checkReady();
+    });
+}
+
+/**
  * เล่นเพลงถัดไป
  */
 async function playNext(guildId, lastVideoId = null) {
@@ -363,6 +384,8 @@ async function playNext(guildId, lastVideoId = null) {
             if (newState.status === 'ready') {
                 console.log('✅ Voice connection is ready! Starting playback.');
                 try {
+                    await waitForConnectionReady(connection);
+                    console.log('✅ Voice connection is ready! Starting playback.');
                     resource = await playWithYtDlp(cleanUrl, message, connection);
                     if (!resource) {
                         console.error('❌ No resource created');
