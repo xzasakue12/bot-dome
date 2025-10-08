@@ -12,7 +12,7 @@ dotenv.config({ path: '/etc/secrets/.env' }); // สำหรับ Render
 dotenv.config(); // สำหรับเครื่อง local
 
 // ตรวจสอบไฟล์ cookies.txt
-const cookiesPath = path.join('/etc/secrets/cookies.txt'); // สำหรับ Render
+const cookiesPath = path.join('/etc/secrets/youtube_cookies.txt'); // สำหรับ Render
 if (fs.existsSync(cookiesPath)) {
     console.log('✅ Found cookies.txt file');
     // เก็บ path ใน config เพื่อใช้ใน player

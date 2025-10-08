@@ -75,9 +75,9 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             
             // ลองหา cookies.txt จากหลาย path
             const cookiesPaths = [
-                path.join(__dirname, '../../cookies.txt'),        // root directory
-                path.join('/etc/secrets/cookies.txt'),           // Render secret files
-                path.join(__dirname, '../cookies.txt'),          // src directory
+                path.join(__dirname, '../../youtube_cookies.txt'),        // root directory
+                path.join('/etc/secrets/youtube_cookies.txt'),           // Render secret files
+                path.join(__dirname, '../youtube_cookies.txt'),          // src directory
                 config.cookiesPath                               // จาก config ถ้ามี
             ];
             
