@@ -524,7 +524,7 @@ async function playNext(guildId, lastVideoId = null) {
                 }
             });
 
-            player.on(AudioPlayerStatus.Idle, () => {
+         player.on(AudioPlayerStatus.Idle, () => {
                 console.log('⏹️ Player idle, checking next action...');
 
                 // Check if the current song was played completely
@@ -543,50 +543,57 @@ async function playNext(guildId, lastVideoId = null) {
                     }
                 }
 
-                // Check if the queue is empty
-                if (config.queue.length === 0) {
-                    console.log('🔄 Queue is empty. Checking autoplay settings...');
-
-                    if (config.settings.autoplayEnabled) {
-                        console.log('🔄 Autoplay is enabled. Starting autoplay...');
-                        global.nextTimeout = setTimeout(async () => {
-                            const nextUrl = await getRandomYouTubeVideo();
-
-                            if (nextUrl && voiceChannel) {
-                                console.log('✅ Adding autoplay song:', nextUrl);
-                                config.queue.push({ 
-                                    cleanUrl: nextUrl, 
-                                    voiceChannel,
-                                    textChannel: config.state.lastTextChannel,
-                                    message: { 
-                                        reply: () => {},
-                                        channel: config.state.lastTextChannel
-                                    } 
-                                });
-
-                                try {
-                                    config.state.lastPlayedVideoId = extractVideoId(nextUrl);
-                                } catch (e) {
-                                    console.error('Extract ID error:', e);
-                                }
-
-                                return playNext(guildId, config.state.lastPlayedVideoId);
-                            }
-                        }, config.settings.autoplayDelay);
-                    } else {
-                        console.log('⏸️ Autoplay is disabled. Stopping playback.');
-                        config.state.isPlaying = false; // Ensure playback state is updated
+                // ตรวจสอบคิวก่อน - ถ้ามีเพลงในคิว ให้เล่นเลย
+                if (config.queue.length > 0) {
+                    console.log(`▶️ Found ${config.queue.length} song(s) in queue, playing next...`);
+                    try {
+                        playNext(guildId, videoId);
+                    } catch (playNextError) {
+                        console.error('❌ Error during playNext:', playNextError);
                     }
-
                     return;
                 }
 
-                // Play the next song in the queue
-                try {
-                    playNext(guildId, videoId);
-                } catch (playNextError) {
-                    console.error('❌ Error during playNext:', playNextError);
+                // ถ้าคิวว่าง แต่ autoplay ปิด → หยุดเลย
+                if (!config.settings.autoplayEnabled) {
+                    console.log('⏸️ Autoplay is disabled. Stopping playback.');
+                    config.state.isPlaying = false;
+                    return;
                 }
+
+                // ถ้า autoplay เปิด และคิวว่างจริงๆ → รอแล้วค่อย autoplay
+                console.log('🔄 Queue is empty. Autoplay is enabled. Waiting before autoplay...');
+                global.nextTimeout = setTimeout(async () => {
+                    // ตรวจสอบอีกครั้งว่าคิวยังว่างอยู่หรือเปล่า
+                    if (config.queue.length > 0) {
+                        console.log('⚠️ Queue has songs now, canceling autoplay');
+                        return playNext(guildId, videoId);
+                    }
+
+                    console.log('🔄 Starting autoplay...');
+                    const nextUrl = await getRandomYouTubeVideo();
+
+                    if (nextUrl && voiceChannel) {
+                        console.log('✅ Adding autoplay song:', nextUrl);
+                        config.queue.push({ 
+                            cleanUrl: nextUrl, 
+                            voiceChannel,
+                            textChannel: config.state.lastTextChannel,
+                            message: { 
+                                reply: () => {},
+                                channel: config.state.lastTextChannel
+                            } 
+                        });
+
+                        try {
+                            config.state.lastPlayedVideoId = extractVideoId(nextUrl);
+                        } catch (e) {
+                            console.error('Extract ID error:', e);
+                        }
+
+                        return playNext(guildId, config.state.lastPlayedVideoId);
+                    }
+                }, config.settings.autoplayDelay);
             });
 
             player.on('error', error => {
