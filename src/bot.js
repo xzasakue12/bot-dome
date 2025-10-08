@@ -65,7 +65,7 @@ async function playWithYtDlp(url, message) {
     const player = createAudioPlayer();
 
     // Play the audio using yt-dlp
-    exec(`./yt-dlp -f bestaudio --cookies /etc/secrets/cookies.txt -o - ${url}`, (error, stdout, stderr) => {
+    exec(`./yt-dlp -f bestaudio --cookies /etc/secrets/cookies.txt --no-cookies -o - ${url}`, (error, stdout, stderr) => {
         if (error) {
             console.error(`❌ yt-dlp Error: ${error.message}`);
             message.reply('❌ เกิดข้อผิดพลาดในการดึงข้อมูลเสียง');
