@@ -65,7 +65,7 @@ module.exports = {
         const url = urlMatch ? urlMatch[0].split('&')[0] : null;
 
         if (!url || typeof url !== 'string' || !url.startsWith('http')) {
-            return message.reply('กรุณาใส่ลิงก์ YouTube ที่ถูกต้อง');
+            return message.reply('❌ กรุณาใส่ลิงก์ YouTube ที่ถูกต้อง');
         }
 
         let videoId;
@@ -73,25 +73,23 @@ module.exports = {
         try {
             videoId = extractVideoId(url);
             if (!videoId) {
-                return message.reply('ไม่สามารถอ่านลิงก์ YouTube นี้ได้ กรุณาตรวจสอบอีกครั้ง');
+                return message.reply('❌ ไม่สามารถอ่านลิงก์ YouTube นี้ได้');
             }
             cleanUrl = `https://www.youtube.com/watch?v=${videoId}`;
         } catch (e) {
             console.log('Error extracting videoId:', e);
-            return message.reply('ไม่สามารถอ่านลิงก์ YouTube นี้ได้ กรุณาตรวจสอบอีกครั้ง');
+            return message.reply('❌ ไม่สามารถอ่านลิงก์ YouTube นี้ได้');
         }
 
         const voiceChannel = message.member.voice.channel;
         if (!voiceChannel) {
-            return message.reply('คุณต้องอยู่ในห้องเสียงก่อน');
+            return message.reply('❌ คุณต้องอยู่ในห้องเสียงก่อน');
         }
 
         // เก็บช่องข้อความที่ใช้งาน
         config.state.lastTextChannel = message.channel;
 
-        // ดึงชื่อเพลง
-        message.reply('⏳ กำลังดึงข้อมูลเพลง...');
-        
+        // ดึงชื่อเพลง (แบบ silent - ไม่แจ้งเตือน)
         let songTitle = cleanUrl;
         try {
             const title = await getVideoTitle(cleanUrl);
@@ -102,6 +100,7 @@ module.exports = {
             console.log('Cannot get video title:', e);
         }
 
+        // เพิ่มเข้าคิว
         config.queue.push({ 
             cleanUrl, 
             voiceChannel, 
@@ -110,9 +109,10 @@ module.exports = {
             title: songTitle 
         });
         
-        message.channel.send(`✅ เพิ่มเพลงเข้าคิวแล้ว: **${songTitle}**`);
+        // ส่งข้อความแค่ครั้งเดียว
+        await message.reply(`✅ เพิ่มเข้าคิว: **${songTitle}**`);
         
-        // Import playNext dynamically to avoid circular dependency
+        // เล่นเพลงถ้ายังไม่ได้เล่น
         if (!config.state.isPlaying) {
             const { playNext } = require('../handlers/player');
             playNext(voiceChannel.guild.id);
