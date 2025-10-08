@@ -73,6 +73,15 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             console.log('🎵 Starting yt-dlp stream for:', cleanUrl);
 
+            // Ensure cookiesPath is declared and initialized before use
+            let cookiesPath = null;
+            for (const p of cookiesPaths) {
+                if (p && fs.existsSync(p)) {
+                    cookiesPath = p;
+                    break;
+                }
+            }
+
             // Add cookies and other arguments to ytdlpArgs
             if (cookiesPath) {
                 console.log('🍪 Using cookies for authentication:', cookiesPath);
