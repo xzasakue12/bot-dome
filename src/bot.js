@@ -10,6 +10,7 @@ const { handleVoiceStateUpdate } = require('./handlers/voiceState');
 const { loadCommands, handleCommand } = require('./handlers/commandHandler');
 const { exec } = require('child_process');
 const fs = require('fs');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
 
 // สร้าง Discord client
 const client = new Client({
@@ -43,18 +44,59 @@ console.log(`📋 Loaded ${commands.size} commands`);
 setClient(client);
 
 // ฟังก์ชันสำหรับใช้ yt-dlp ดึงข้อมูลเสียงจาก YouTube
-async function playWithYtDlp(url) {
+async function playWithYtDlp(url, message) {
     console.log(`🎵 Attempting to play: ${url}`);
-    exec(`./yt-dlp -f bestaudio --cookies cookies.txt ${url}`, (error, stdout, stderr) => {
+
+    // Check if the user is in a voice channel
+    const voiceChannel = message.member?.voice?.channel;
+    if (!voiceChannel) {
+        message.reply('❌ คุณต้องอยู่ในห้องเสียงเพื่อใช้คำสั่งนี้');
+        return;
+    }
+
+    // Join the voice channel
+    const connection = joinVoiceChannel({
+        channelId: voiceChannel.id,
+        guildId: voiceChannel.guild.id,
+        adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+    });
+
+    // Create an audio player
+    const player = createAudioPlayer();
+
+    // Play the audio using yt-dlp
+    exec(`./yt-dlp -f bestaudio --cookies cookies.txt -o - ${url}`, (error, stdout, stderr) => {
         if (error) {
             console.error(`❌ yt-dlp Error: ${error.message}`);
+            message.reply('❌ เกิดข้อผิดพลาดในการดึงข้อมูลเสียง');
             return;
         }
         if (stderr) {
             console.error(`⚠️ yt-dlp Stderr: ${stderr}`);
-            return;
         }
-        console.log(`✅ yt-dlp Output: ${stdout}`);
+
+        // Create an audio resource from the yt-dlp output
+        const resource = createAudioResource(stdout.trim());
+        player.play(resource);
+
+        // Subscribe the connection to the audio player
+        connection.subscribe(player);
+
+        player.on(AudioPlayerStatus.Playing, () => {
+            console.log('🎶 กำลังเล่นเพลง');
+            message.reply('🎶 กำลังเล่นเพลงในห้องเสียง');
+        });
+
+        player.on(AudioPlayerStatus.Idle, () => {
+            console.log('🎵 เพลงจบแล้ว');
+            connection.destroy();
+        });
+
+        player.on('error', (err) => {
+            console.error('❌ Audio Player Error:', err);
+            message.reply('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
+            connection.destroy();
+        });
     });
 }
 
@@ -75,7 +117,7 @@ client.on('messageCreate', async (message) => {
             message.reply('❌ โปรดระบุ URL ของ YouTube');
             return;
         }
-        await playWithYtDlp(url);
+        await playWithYtDlp(url, message);
     } else {
         await handleCommand(message, config.settings.prefix, commands);
     }
