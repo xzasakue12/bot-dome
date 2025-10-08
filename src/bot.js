@@ -20,19 +20,19 @@ const client = new Client({
     ]
 });
 
-if (process.env.YOUTUBE_COOKIE) {
-    const cookie = process.env.YOUTUBE_COOKIE;
-    console.log('🔍 Debug: YOUTUBE_COOKIE =', cookie);
-    if (cookie && cookie.includes(';')) {
-        playdl.setToken({ youtube: { cookie: cookie } });
-        console.log('✅ YouTube cookie loaded');
-    } else {
-        console.error('❌ Invalid YouTube cookie format. Ensure it contains key-value pairs separated by semicolons.');
-    }
-} else if (process.env.YOUTUBE_API_KEY) {
-    playdl.setToken({ youtube: { apiKey: process.env.YOUTUBE_API_KEY } });
-    console.log('✅ YouTube API Key loaded');
-}
+// if (process.env.YOUTUBE_COOKIE) {
+//     const cookie = process.env.YOUTUBE_COOKIE;
+//     console.log('🔍 Debug: YOUTUBE_COOKIE =', cookie);
+//     if (cookie && cookie.includes(';')) {
+//         playdl.setToken({ youtube: { cookie: cookie } });
+//         console.log('✅ YouTube cookie loaded');
+//     } else {
+//         console.error('❌ Invalid YouTube cookie format. Ensure it contains key-value pairs separated by semicolons.');
+//     }
+// } else if (process.env.YOUTUBE_API_KEY) {
+//     playdl.setToken({ youtube: { apiKey: process.env.YOUTUBE_API_KEY } });
+//     console.log('✅ YouTube API Key loaded');
+// }
 
 // โหลดคำสั่งทั้งหมด
 const commands = loadCommands();
