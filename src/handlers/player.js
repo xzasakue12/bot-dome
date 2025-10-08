@@ -110,7 +110,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             // เพิ่ม buffer-size และ retries
             ytdlpArgs.push(
-                '--buffer-size', '64K',
+                '--buffer-size', '128K',
                 '--retries', '5'
             );
 
@@ -164,11 +164,12 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             const bassGain = config.audioSettings?.bassGain || 10; // Default to 10 dB if undefined
 
             const ffmpegArgs = [
-                '-i', 'pipe:0',
-                '-af', `bass=g=${bassGain}`,
-                '-f', 'opus',
+                '-i', 'pipe:0', // Input from yt-dlp
+                '-af', `bass=g=${bassGain}`, // เพิ่มเบส
+                '-b:a', '128k', // ตั้งค่าบิตเรตเป็น 128 kbps
+                '-f', 'opus', // Output format
                 '-hide_banner', '-loglevel', 'error', // ซ่อนข้อความสถานะ
-                'pipe:1'
+                'pipe:1' // Output to stdout
             ];
 
             const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
