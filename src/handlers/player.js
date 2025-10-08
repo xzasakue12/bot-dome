@@ -68,7 +68,9 @@ async function playWithYtDlp(cleanUrl, message, connection) {
         try {
             const ytDlpPath = getYtDlpPath();
 
+            // Reduce excessive logging to minimize memory usage
             console.log('🎵 Starting yt-dlp stream for:', cleanUrl);
+            console.log('🔧 yt-dlp command:', ytDlpPath, ytdlpArgs.slice(0, 3).join(' '), '...'); // Show fewer arguments
 
             // สร้าง arguments สำหรับ yt-dlp
             const ytdlpArgs = [];
@@ -125,8 +127,6 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 '-o', '-',
                 cleanUrl
             );
-
-            console.log('🔧 yt-dlp command:', ytDlpPath, ytdlpArgs.slice(0, 6).join(' '), '...');
 
             const ytdlpProcess = spawn(ytDlpPath, ytdlpArgs, {
                 shell: false,
@@ -185,9 +185,8 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             ytdlpProcess.stdout.pipe(ffmpegProcess.stdin); // Pipe yt-dlp output to FFmpeg
 
             ffmpegProcess.stderr.on('data', (data) => {
-                console.error('FFmpeg error:', data.toString());
-                if (data.toString().includes('memory')) {
-                    console.error('❌ Memory issue detected. Adjusting settings...');
+                if (process.env.DEBUG) { // Only log FFmpeg errors in debug mode
+                    console.error('FFmpeg error:', data.toString());
                 }
             });
 
