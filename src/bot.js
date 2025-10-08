@@ -11,15 +11,29 @@ const path = require('path');
 dotenv.config({ path: '/etc/secrets/.env' }); // สำหรับ Render
 dotenv.config(); // สำหรับเครื่อง local
 
-// ตรวจสอบไฟล์ cookies.txt
-const cookiesPath = path.join('/etc/secrets/youtube_cookies.txt'); // สำหรับ Render
-if (fs.existsSync(cookiesPath)) {
-    console.log('✅ Found cookies.txt file');
-    // เก็บ path ใน config เพื่อใช้ใน player
-    config.cookiesPath = cookiesPath;
-} else {
-    console.warn('⚠️ cookies.txt not found. YouTube playback may fail.');
-    console.warn('💡 Create cookies.txt file to fix YouTube bot detection issues.');
+// ตรวจสอบไฟล์ cookies.txt หรือ youtube_cookies.txt
+const possibleCookiesPaths = [
+    path.join('/etc/secrets/youtube_cookies.txt'),  // Render secret files (youtube_cookies.txt)
+    path.join('/etc/secrets/cookies.txt'),          // Render secret files (cookies.txt)
+    path.join(__dirname, '../youtube_cookies.txt'), // Root directory (youtube_cookies.txt)
+    path.join(__dirname, '../cookies.txt'),         // Root directory (cookies.txt)
+    path.join(__dirname, 'youtube_cookies.txt'),    // src directory (youtube_cookies.txt)
+    path.join(__dirname, 'cookies.txt')             // src directory (cookies.txt)
+];
+
+let cookiesPath = null;
+for (const p of possibleCookiesPaths) {
+    if (fs.existsSync(p)) {
+        cookiesPath = p;
+        console.log(`✅ Found cookies file at: ${p}`);
+        config.cookiesPath = cookiesPath;
+        break;
+    }
+}
+
+if (!cookiesPath) {
+    console.warn('⚠️ cookies.txt or youtube_cookies.txt not found. YouTube playback may fail.');
+    console.warn('💡 Create cookies.txt or youtube_cookies.txt file to fix YouTube bot detection issues.');
     console.warn('📖 See: https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp');
 }
 
