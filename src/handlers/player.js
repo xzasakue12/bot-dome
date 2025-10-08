@@ -110,7 +110,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             // เพิ่ม buffer-size และ retries
             ytdlpArgs.push(
-                '--buffer-size', '128K',
+                '--buffer-size', '64K',
                 '--retries', '5'
             );
 
@@ -166,7 +166,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             const ffmpegArgs = [
                 '-i', 'pipe:0', // Input from yt-dlp
                 '-af', `bass=g=${bassGain}`, // เพิ่มเบส
-                '-b:a', '128k', // ตั้งค่าบิตเรตเป็น 128 kbps
+                '-b:a', '64k', // ตั้งค่าบิตเรตเป็น 128 kbps
                 '-f', 'opus', // Output format
                 '-hide_banner', '-loglevel', 'error', // ซ่อนข้อความสถานะ
                 'pipe:1' // Output to stdout
