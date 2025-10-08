@@ -378,14 +378,16 @@ async function playNext(guildId, lastVideoId = null) {
             }
         });
 
+        // Update voice connection state change logs to prevent duplicates
         connection.on('stateChange', async (oldState, newState) => {
-            console.log(`🔄 Voice connection state changed: ${oldState.status} -> ${newState.status}`);
+            const stateChangeKey = `stateChange-${oldState.status}-${newState.status}`;
+            logOnce(stateChangeKey, `🔄 Voice connection state changed: ${oldState.status} -> ${newState.status}`);
 
             if (newState.status === 'ready') {
-                console.log('✅ Voice connection is ready! Starting playback.');
+                const readyKey = `connection-ready-${newState.status}`;
+                logOnce(readyKey, '✅ Voice connection is ready! Starting playback.');
+
                 try {
-                    await waitForConnectionReady(connection);
-                    console.log('✅ Voice connection is ready! Starting playback.');
                     resource = await playWithYtDlp(cleanUrl, message, connection);
                     if (!resource) {
                         console.error('❌ No resource created');
@@ -401,7 +403,8 @@ async function playNext(guildId, lastVideoId = null) {
                     player.play(resource);
 
                     player.on(AudioPlayerStatus.Playing, () => {
-                        console.log('🎶 Now playing:', title || cleanUrl);
+                        const playingKey = `playing-${cleanUrl}`;
+                        logOnce(playingKey, `🎶 Now playing: ${title || cleanUrl}`);
                         message.channel.send(`🎶 กำลังเล่น: **${title || cleanUrl}**`)
                             .catch(e => console.error('Send error:', e));
                     });
