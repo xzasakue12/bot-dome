@@ -163,7 +163,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             const ffmpegArgs = [
                 '-i', 'pipe:0', // Input from yt-dlp
-                '-af', 'bass=g=10', // Add bass boost filter
+                '-af', `bass=g=${config.audioSettings.bassGain}`, // Dynamically set bass gain
                 '-f', 'opus', // Output format
                 'pipe:1' // Output to stdout
             ];
