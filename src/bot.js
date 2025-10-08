@@ -66,8 +66,10 @@ client.once('ready', () => {
 
 // Event: เมื่อได้รับข้อความ
 client.on('messageCreate', async (message) => {
+    console.log(`📩 Received message: ${message.content}`);
     if (message.content.startsWith('!play')) {
         const url = message.content.split(' ')[1]; // ดึง URL จากข้อความ
+        console.log(`🎵 Attempting to play URL: ${url}`);
         if (!url) {
             message.reply('❌ โปรดระบุ URL ของ YouTube');
             return;
