@@ -411,10 +411,15 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 cleanupProcesses(ytdlpProcess, ffmpegProcess);
             });
 
-            console.log('✅ yt-dlp stream created successfully');
             
-            // Wait a bit for FFmpeg to start processing
-            await new Promise(resolve => setTimeout(resolve, 800));
+             console.log('✅ yt-dlp stream created successfully');
+            
+            setTimeout(() => {
+                if (!isResolved) {
+                    isResolved = true;
+                    resolve(resource);
+                }
+            }, 800);
             
             if (!isResolved) {
                 isResolved = true;
@@ -568,6 +573,7 @@ async function playNext(guildId, lastVideoId = null) {
                 return;
             }
 
+            // Setup player first
             let player = config.state.currentPlayer;
             if (!player) {
                 player = createAudioPlayer();
@@ -576,37 +582,6 @@ async function playNext(guildId, lastVideoId = null) {
             } else {
                 player.removeAllListeners();
             }
-            
-            // Wait for stream to receive first data chunk
-            console.log('⏳ Waiting for audio stream to be ready...');
-            
-            const waitForStream = new Promise((resolve) => {
-                let resolved = false;
-                
-                // Check every 100ms if data received
-                const checkInterval = setInterval(() => {
-                    if (resource.metadata.hasReceivedData() && !resolved) {
-                        resolved = true;
-                        clearInterval(checkInterval);
-                        console.log('✅ Stream ready with data, starting playback');
-                        resolve();
-                    }
-                }, 100);
-                
-                // Timeout after 5 seconds - play anyway
-                setTimeout(() => {
-                    if (!resolved) {
-                        resolved = true;
-                        clearInterval(checkInterval);
-                        console.warn('⚠️ Stream timeout, starting playback anyway');
-                        resolve();
-                    }
-                }, 5000);
-            });
-            
-            // Wait for stream, then play
-            await waitForStream;
-            player.play(resource);
 
             // Track if song actually started playing
             let hasStartedPlaying = false;
@@ -627,6 +602,29 @@ async function playNext(guildId, lastVideoId = null) {
             player.on(AudioPlayerStatus.Buffering, (oldState, newState) => {
                 console.log(`⏸️ Buffering... (from ${oldState.status})`);
             });
+            
+            // Wait for stream to receive first data chunk, then play
+            console.log('⏳ Waiting for audio stream to be ready...');
+            
+            let streamReady = false;
+            const checkInterval = setInterval(() => {
+                if (resource.metadata.hasReceivedData() && !streamReady) {
+                    streamReady = true;
+                    clearInterval(checkInterval);
+                    console.log('✅ Stream ready with data, starting playback');
+                    player.play(resource);
+                }
+            }, 100);
+            
+            // Timeout after 5 seconds - play anyway
+            setTimeout(() => {
+                if (!streamReady) {
+                    streamReady = true;
+                    clearInterval(checkInterval);
+                    console.warn('⚠️ Stream timeout, starting playback anyway');
+                    player.play(resource);
+                }
+            }, 5000);
 
             player.on(AudioPlayerStatus.Idle, () => {
                 const playDuration = playStartTime ? Date.now() - playStartTime : 0;
