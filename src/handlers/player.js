@@ -548,7 +548,7 @@ async function playNext(guildId, lastVideoId = null) {
                     console.log('🔄 Queue is empty. Checking autoplay settings...');
 
                     if (config.settings.autoplayEnabled) {
-                        console.log('🔄 Starting autoplay...');
+                        console.log('🔄 Autoplay is enabled. Starting autoplay...');
                         global.nextTimeout = setTimeout(async () => {
                             const nextUrl = await getRandomYouTubeVideo();
 
@@ -575,6 +575,7 @@ async function playNext(guildId, lastVideoId = null) {
                         }, config.settings.autoplayDelay);
                     } else {
                         console.log('⏸️ Autoplay is disabled. Stopping playback.');
+                        config.state.isPlaying = false; // Ensure playback state is updated
                     }
 
                     return;
