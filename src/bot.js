@@ -61,9 +61,6 @@ async function playWithYtDlp(url, message) {
         adapterCreator: voiceChannel.guild.voiceAdapterCreator,
     });
 
-    // Create an audio player
-    const player = createAudioPlayer();
-
     // Play the audio using yt-dlp
     exec(`./yt-dlp -f bestaudio --cookies /etc/secrets/cookies.txt -o - ${url}`, (error, stdout, stderr) => {
         if (error) {
@@ -75,29 +72,33 @@ async function playWithYtDlp(url, message) {
             console.error(`⚠️ yt-dlp Stderr: ${stderr}`);
         }
         console.log(`✅ yt-dlp Output: ${stdout}`);
+        
+        try {
+            const player = createAudioPlayer();
+            const resource = createAudioResource(stdout.trim()); // ใช้ stdout จาก yt-dlp
 
-        // Create an audio resource from the yt-dlp output
-        const resource = createAudioResource(stdout.trim()); // ใช้ stdout จาก yt-dlp
-        player.play(resource);
+            player.play(resource);
+            connection.subscribe(player);
 
-        // Subscribe the connection to the audio player
-        connection.subscribe(player);
+            player.on(AudioPlayerStatus.Playing, () => {
+                console.log('🎶 กำลังเล่นเพลง');
+                message.reply('🎶 กำลังเล่นเพลงในห้องเสียง');
+            });
 
-        player.on(AudioPlayerStatus.Playing, () => {
-            console.log('🎶 กำลังเล่นเพลง');
-            message.reply('🎶 กำลังเล่นเพลงในห้องเสียง');
-        });
+            player.on(AudioPlayerStatus.Idle, () => {
+                console.log('🎵 เพลงจบแล้ว');
+                connection.destroy();
+            });
 
-        player.on(AudioPlayerStatus.Idle, () => {
-            console.log('🎵 เพลงจบแล้ว');
-            connection.destroy();
-        });
-
-        player.on('error', (err) => {
-            console.error('❌ Audio Player Error:', err);
-            message.reply('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
-            connection.destroy();
-        });
+            player.on('error', (err) => {
+                console.error('❌ Audio Player Error:', err);
+                message.reply('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
+                connection.destroy();
+            });
+        } catch (err) {
+            console.error('❌ Error creating audio resource:', err);
+            message.reply('❌ เกิดข้อผิดพลาดในการสร้างทรัพยากรเสียง');
+        }
     });
 }
 
