@@ -139,7 +139,8 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             const ytdlpProcess = spawn(ytDlpPath, ytdlpArgs, {
                 shell: false,
                 windowsHide: true,
-                stdio: ['ignore', 'pipe', 'pipe']
+                stdio: ['ignore', 'pipe', 'pipe'],
+                timeout: 30000 // 30 second timeout
             });
 
             let stderrOutput = '';
@@ -297,7 +298,9 @@ async function playNext(guildId, lastVideoId = null) {
                 connection = joinVoiceChannel({
                     channelId: voiceChannel.id,
                     guildId: voiceChannel.guild.id,
-                    adapterCreator: voiceChannel.guild.voiceAdapterCreator
+                    adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+                    selfDeaf: false,
+                    selfMute: false
                 });
                 config.state.currentConnection = connection;
 
@@ -305,11 +308,29 @@ async function playNext(guildId, lastVideoId = null) {
                 connection.removeAllListeners('stateChange');
                 connection.removeAllListeners('error');
 
-                // Setup connection error handler (only once)
+                // Setup connection error handler with recovery (only once)
                 connection.on('error', (error) => {
                     console.error('❌ Voice connection error:', error);
                     if (error.message.includes('socket closed')) {
-                        console.error('💡 Socket closed unexpectedly. Will retry on next song.');
+                        console.error('💡 Socket closed - attempting to reconnect...');
+                        
+                        // Destroy and recreate connection
+                        setTimeout(() => {
+                            if (config.state.currentConnection) {
+                                config.state.currentConnection.destroy();
+                                config.state.currentConnection = null;
+                            }
+                            
+                            // Reconnect
+                            const newConnection = joinVoiceChannel({
+                                channelId: voiceChannel.id,
+                                guildId: voiceChannel.guild.id,
+                                adapterCreator: voiceChannel.guild.voiceAdapterCreator
+                            });
+                            config.state.currentConnection = newConnection;
+                            
+                            console.log('🔄 Reconnected to voice channel');
+                        }, 1000);
                     }
                 });
 
