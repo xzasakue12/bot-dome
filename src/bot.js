@@ -4,10 +4,24 @@ const config = require('./config');
 const { setClient } = require('./handlers/player');
 const { handleVoiceStateUpdate } = require('./handlers/voiceState');
 const { loadCommands, handleCommand } = require('./handlers/commandHandler');
+const fs = require('fs');
+const path = require('path');
 
 // โหลด .env
 dotenv.config({ path: '/etc/secrets/.env' }); // สำหรับ Render
 dotenv.config(); // สำหรับเครื่อง local
+
+// ตรวจสอบไฟล์ cookies.txt
+const cookiesPath = path.join('/etc/secrets/cookies.txt'); // สำหรับ Render
+if (fs.existsSync(cookiesPath)) {
+    console.log('✅ Found cookies.txt file');
+    // เก็บ path ใน config เพื่อใช้ใน player
+    config.cookiesPath = cookiesPath;
+} else {
+    console.warn('⚠️ cookies.txt not found. YouTube playback may fail.');
+    console.warn('💡 Create cookies.txt file to fix YouTube bot detection issues.');
+    console.warn('📖 See: https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp');
+}
 
 // สร้าง Discord client
 const client = new Client({
