@@ -184,10 +184,32 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 console.error('FFmpeg error:', data.toString());
             });
 
+            ffmpegProcess.on('error', (err) => {
+                console.error('❌ FFmpeg process error:', err);
+                if (err.code === 'EPIPE') {
+                    console.error('💡 FFmpeg encountered a broken pipe. Ensure the connection is stable.');
+                }
+                reject(err);
+            });
+
+            let retryCount = 0;
+            const maxRetries = 3;
+
+            function retryPlay() {
+                if (retryCount < maxRetries) {
+                    retryCount++;
+                    console.log(`🔄 Retrying playback... Attempt ${retryCount}`);
+                    playWithYtDlp(cleanUrl, message, connection).catch(retryPlay);
+                } else {
+                    console.error('❌ Maximum retry attempts reached. Skipping to the next song.');
+                    playNext(guildId, lastVideoId);
+                }
+            }
+
             ffmpegProcess.on('close', (code) => {
                 if (code !== 0) {
-                    console.error('FFmpeg exited with code:', code);
-                    reject(new Error('FFmpeg process failed'));
+                    console.error(`FFmpeg exited with code: ${code}`);
+                    retryPlay();
                 }
             });
 
