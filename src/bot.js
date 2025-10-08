@@ -21,6 +21,7 @@ const client = new Client({
 
 if (process.env.YOUTUBE_COOKIE) {
     const cookie = process.env.YOUTUBE_COOKIE;
+    console.log('🔍 Debug: YOUTUBE_COOKIE =', cookie);
     if (cookie && cookie.includes(';')) {
         playdl.setToken({ youtube: { cookie: cookie } });
         console.log('✅ YouTube cookie loaded');
