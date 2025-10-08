@@ -8,6 +8,13 @@ const { getRandomYouTubeVideo } = require('../utils/youtube');
 
 let client;
 
+// Define cookiesPaths to include potential paths for cookies.txt
+const cookiesPaths = [
+    path.resolve(__dirname, '../../cookies.txt'),
+    path.resolve(__dirname, '../../youtube_cookies.txt'),
+    '/etc/secrets/cookies.txt' // Example path for deployment environments
+];
+
 function setClient(discordClient) {
     client = discordClient;
 }
