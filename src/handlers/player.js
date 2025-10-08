@@ -8,11 +8,12 @@ const { getRandomYouTubeVideo } = require('../utils/youtube');
 
 let client;
 
-// Connection management - ปรับลดจำนวน retry และลด delay
-const connectionState = new Map(); // ใช้ Map แทน global variables
-const MAX_RETRIES = 2; // ลดจาก 3 เป็น 2
-const RETRY_DELAY = 1500; // ลดจาก 2000 เป็น 1500ms
-const CONNECTION_TIMEOUT = 15000; // ลดจาก 25000 เป็น 15000ms
+// Connection management - เพิ่ม timeout และปรับ retry
+const connectionState = new Map();
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 2000;
+const CONNECTION_TIMEOUT = 20000;
+const RECONNECT_DELAY = 3000;
 
 // Lock mechanism
 const processingGuilds = new Set();
@@ -112,22 +113,16 @@ function cleanupProcesses(ytdlpProcess, ffmpegProcess) {
     }
 }
 
-/**
- * 🔥 แก้ไขหลัก: Connection Handler ใหม่
- */
 function setupConnectionHandlers(connection, guildId, voiceChannel) {
-    // Clean up old listeners
     connection.removeAllListeners('stateChange');
     connection.removeAllListeners('error');
 
-    // Initialize retry counter for this guild
     if (!connectionState.has(guildId)) {
         connectionState.set(guildId, { retries: 0, lastError: null });
     }
 
     const state = connectionState.get(guildId);
 
-    // Handle disconnection with improved recovery
     connection.on('stateChange', async (oldState, newState) => {
         console.log(`🔄 [${guildId}] ${oldState.status} → ${newState.status}`);
         
@@ -136,32 +131,38 @@ function setupConnectionHandlers(connection, guildId, voiceChannel) {
             console.log(`✅ [${guildId}] Connection stable`);
         }
         
-        // Handle disconnection
         if (newState.status === VoiceConnectionStatus.Disconnected) {
+            console.log(`⚠️ [${guildId}] Disconnected, attempting recovery...`);
+            
             try {
-                // Try to reconnect quickly
                 await Promise.race([
                     entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
                     entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
                 ]);
+                
+                await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
                 console.log(`✅ [${guildId}] Reconnected successfully`);
+                state.retries = 0;
+                
             } catch (error) {
                 console.error(`❌ [${guildId}] Failed to reconnect:`, error.message);
                 
-                // Destroy and let retry logic handle it
-                if (connection.state.status !== VoiceConnectionStatus.Destroyed) {
-                    connection.destroy();
+                if (state.retries >= MAX_RETRIES) {
+                    console.error(`❌ [${guildId}] Max retries reached, destroying connection`);
+                    if (connection.state.status !== VoiceConnectionStatus.Destroyed) {
+                        connection.destroy();
+                    }
+                } else {
+                    console.log(`🔄 [${guildId}] Will retry... (${state.retries}/${MAX_RETRIES})`);
                 }
             }
         }
     });
 
-    // Improved error handler
     connection.on('error', async (error) => {
         console.error(`❌ [${guildId}] Voice error:`, error.message);
         state.lastError = error;
         
-        // Check if it's a recoverable error
         const isRecoverable = 
             error.message.includes('socket closed') ||
             error.message.includes('IP discovery') ||
@@ -171,12 +172,9 @@ function setupConnectionHandlers(connection, guildId, voiceChannel) {
         if (isRecoverable && state.retries < MAX_RETRIES) {
             state.retries++;
             console.log(`🔄 [${guildId}] Retry ${state.retries}/${MAX_RETRIES}`);
-            
-            // Don't recreate connection here - let the retry logic in playNext handle it
             return;
         }
         
-        // Max retries reached or non-recoverable error
         console.error(`❌ [${guildId}] Connection failed (${state.retries} retries)`);
         
         if (config.state.lastTextChannel) {
@@ -184,14 +182,10 @@ function setupConnectionHandlers(connection, guildId, voiceChannel) {
                 .catch(e => console.error('Send error:', e));
         }
         
-        // Reset for next attempt
         state.retries = 0;
     });
 }
 
-/**
- * 🔥 แก้ไขหลัก: สร้าง Voice Connection ใหม่
- */
 async function createVoiceConnection(voiceChannel, guildId) {
     try {
         console.log(`🔌 [${guildId}] Creating voice connection...`);
@@ -202,13 +196,11 @@ async function createVoiceConnection(voiceChannel, guildId) {
             adapterCreator: voiceChannel.guild.voiceAdapterCreator,
             selfDeaf: false,
             selfMute: false,
-            // 🔥 ปิด debug mode
             debug: false
         });
         
         setupConnectionHandlers(connection, guildId, voiceChannel);
         
-        // Wait for ready with timeout
         try {
             await entersState(connection, VoiceConnectionStatus.Ready, CONNECTION_TIMEOUT);
             console.log(`✅ [${guildId}] Connection ready`);
@@ -216,7 +208,6 @@ async function createVoiceConnection(voiceChannel, guildId) {
         } catch (error) {
             console.error(`❌ [${guildId}] Connection timeout:`, error.message);
             
-            // Try one more time if it's in Signalling state
             if (connection.state.status === VoiceConnectionStatus.Signalling) {
                 console.log(`🔄 [${guildId}] Waiting for signalling to complete...`);
                 await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
@@ -236,7 +227,6 @@ async function playWithYtDlp(cleanUrl, message, connection) {
         let ytdlpProcess;
         let ffmpegProcess;
         let isResolved = false;
-        let hasReceivedData = false;
 
         try {
             const ytdlpArgs = [];
@@ -331,7 +321,6 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 stdio: ['pipe', 'pipe', 'pipe']
             });
 
-            // Create resource first
             const resource = createAudioResource(ffmpegProcess.stdout, {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: true
@@ -341,7 +330,6 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 resource.volume.setVolume(0.5);
             }
 
-            // Track data reception AFTER resource is created
             let dataReceived = false;
             const originalRead = ffmpegProcess.stdout.read;
             ffmpegProcess.stdout.read = function(...args) {
@@ -352,7 +340,6 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 return originalRead.apply(this, args);
             };
 
-            // Also listen to readable event
             ffmpegProcess.stdout.once('readable', () => {
                 if (!dataReceived) {
                     dataReceived = true;
@@ -360,7 +347,6 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 }
             });
 
-            // Store processes and stream state
             resource.metadata = {
                 ytdlpProcess,
                 ffmpegProcess,
@@ -368,7 +354,6 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 cleanup: () => cleanupProcesses(ytdlpProcess, ffmpegProcess)
             };
 
-            // Handle pipe errors
             ytdlpProcess.stdout.on('error', (err) => {
                 if (err.code === 'EPIPE') {
                     console.error('⚠️ yt-dlp stdout pipe closed');
@@ -411,8 +396,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 cleanupProcesses(ytdlpProcess, ffmpegProcess);
             });
 
-            
-             console.log('✅ yt-dlp stream created successfully');
+            console.log('✅ yt-dlp stream created successfully');
             
             setTimeout(() => {
                 if (!isResolved) {
@@ -420,11 +404,6 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                     resolve(resource);
                 }
             }, 800);
-            
-            if (!isResolved) {
-                isResolved = true;
-                resolve(resource);
-            }
 
         } catch (error) {
             if (!isResolved) {
@@ -435,10 +414,6 @@ async function playWithYtDlp(cleanUrl, message, connection) {
         }
     });
 }
-
-/**
- * 🔥 ลบฟังก์ชัน waitForConnectionReady เดิม ใช้ entersState แทน
- */
 
 async function playNext(guildId, lastVideoId = null) {
     if (processingGuilds.has(guildId)) {
@@ -477,14 +452,12 @@ async function playNext(guildId, lastVideoId = null) {
                 console.error('Error extracting videoId:', e);
             }
 
-            // 🔥 ปรับปรุงการจัดการ connection
             let connection = config.state.currentConnection;
             const needNewConnection = !connection || 
                 connection.state.status === VoiceConnectionStatus.Destroyed ||
                 connection.state.status === VoiceConnectionStatus.Disconnected;
 
             if (needNewConnection) {
-                // Clean up old connection
                 if (connection) {
                     try {
                         connection.destroy();
@@ -493,7 +466,6 @@ async function playNext(guildId, lastVideoId = null) {
                     }
                 }
                 
-                // Create new connection
                 try {
                     connection = await createVoiceConnection(voiceChannel, guildId);
                     config.state.currentConnection = connection;
@@ -507,11 +479,8 @@ async function playNext(guildId, lastVideoId = null) {
                     
                     config.state.isPlaying = false;
                     processingGuilds.delete(guildId);
-                    
-                    // Put song back in queue
                     config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
                     
-                    // Retry after delay
                     const state = connectionState.get(guildId) || { retries: 0 };
                     if (state.retries < MAX_RETRIES) {
                         setTimeout(() => {
@@ -524,7 +493,6 @@ async function playNext(guildId, lastVideoId = null) {
                     return;
                 }
             } else if (connection.state.status !== VoiceConnectionStatus.Ready) {
-                // Connection exists but not ready, wait for it
                 try {
                     console.log(`⏳ [${guildId}] Waiting for connection to be ready...`);
                     await entersState(connection, VoiceConnectionStatus.Ready, CONNECTION_TIMEOUT);
@@ -532,12 +500,10 @@ async function playNext(guildId, lastVideoId = null) {
                 } catch (error) {
                     console.error('❌ Connection not ready:', error);
                     
-                    // Retry with new connection
                     config.state.currentConnection?.destroy();
                     config.state.currentConnection = null;
                     config.state.isPlaying = false;
                     processingGuilds.delete(guildId);
-                    
                     config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
                     
                     setTimeout(() => {
@@ -573,7 +539,6 @@ async function playNext(guildId, lastVideoId = null) {
                 return;
             }
 
-            // Setup player first
             let player = config.state.currentPlayer;
             if (!player) {
                 player = createAudioPlayer();
@@ -583,7 +548,6 @@ async function playNext(guildId, lastVideoId = null) {
                 player.removeAllListeners();
             }
 
-            // Track if song actually started playing
             let hasStartedPlaying = false;
             let playStartTime = null;
 
@@ -598,12 +562,10 @@ async function playNext(guildId, lastVideoId = null) {
                 }
             });
 
-            // Also log when buffering
             player.on(AudioPlayerStatus.Buffering, (oldState, newState) => {
                 console.log(`⏸️ Buffering... (from ${oldState.status})`);
             });
             
-            // Wait for stream to receive first data chunk, then play
             console.log('⏳ Waiting for audio stream to be ready...');
             
             let streamReady = false;
@@ -616,7 +578,6 @@ async function playNext(guildId, lastVideoId = null) {
                 }
             }, 100);
             
-            // Timeout after 5 seconds - play anyway
             setTimeout(() => {
                 if (!streamReady) {
                     streamReady = true;
@@ -633,11 +594,13 @@ async function playNext(guildId, lastVideoId = null) {
                 console.log(`⏹️ Player idle after ${durationStr}, checking next action...`);
                 console.log(`   hasStartedPlaying: ${hasStartedPlaying}, playDuration: ${playDuration}ms`);
                 
-                // ถ้าเล่นไม่ถึง 5 วินาที แสดงว่าเกิด error หรือยังไม่ได้เล่นจริง
-                if (!hasStartedPlaying || playDuration < 5000) {
-                    console.warn(`⚠️ Song stopped too quickly (${durationStr}) - possible stream issue`);
+                // ตรวจสอบว่า connection ยังใช้งานได้อยู่หรือไม่
+                const connectionOk = connection && 
+                    connection.state.status === VoiceConnectionStatus.Ready;
+                
+                if (!connectionOk) {
+                    console.warn(`⚠️ Connection lost during playback - attempting recovery`);
                     
-                    // Cleanup และลองเล่นเพลงถัดไป
                     if (resource.metadata && resource.metadata.cleanup) {
                         try {
                             resource.metadata.cleanup();
@@ -646,7 +609,28 @@ async function playNext(guildId, lastVideoId = null) {
                         }
                     }
                     
-                    // ถ้ายังไม่เคยเล่นเลย ให้ retry เพลงเดิม
+                    config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
+                    config.state.isPlaying = false;
+                    processingGuilds.delete(guildId);
+                    
+                    setTimeout(() => {
+                        console.log('🔄 Retrying playback after connection recovery...');
+                        playNext(guildId, videoId);
+                    }, RECONNECT_DELAY);
+                    return;
+                }
+                
+                if (!hasStartedPlaying || playDuration < 5000) {
+                    console.warn(`⚠️ Song stopped too quickly (${durationStr}) - possible stream issue`);
+                    
+                    if (resource.metadata && resource.metadata.cleanup) {
+                        try {
+                            resource.metadata.cleanup();
+                        } catch (e) {
+                            console.error('Cleanup error:', e);
+                        }
+                    }
+                    
                     if (!hasStartedPlaying) {
                         console.log('🔄 Retrying current song...');
                         config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
@@ -746,7 +730,7 @@ async function playNext(guildId, lastVideoId = null) {
             return;
         }
 
-        // Autoplay
+        // Autoplay when queue is empty
         if (config.queue.length === 0 && lastVideoId && config.settings.autoplayEnabled) {
             console.log('🔄 Starting autoplay...');
             processingGuilds.delete(guildId);
@@ -801,7 +785,7 @@ async function playNext(guildId, lastVideoId = null) {
         }
         config.state.isPlaying = false;
         processingGuilds.delete(guildId);
-        
+        throw error;
     } catch (error) {
         console.error('❌ Error in playNext:', error);
         processingGuilds.delete(guildId);
