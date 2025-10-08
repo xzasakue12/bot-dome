@@ -1,5 +1,5 @@
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
-const playdl = require('play-dl');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
+const ytdl = require('ytdl-core');
 const { spawn } = require('child_process');
 const config = require('../config');
 const { getYtDlpPath, checkVoiceChannelEmpty } = require('../utils/helpers');
@@ -9,6 +9,30 @@ let client; // จะถูกตั้งค่าจาก index.js
 
 function setClient(discordClient) {
     client = discordClient;
+}
+
+/**
+ * ดึง Video ID จาก YouTube URL
+ */
+function extractVideoId(url) {
+    try {
+        const urlObj = new URL(url);
+        
+        // youtube.com/watch?v=xxxxx
+        if (urlObj.hostname.includes('youtube.com')) {
+            return urlObj.searchParams.get('v');
+        }
+        
+        // youtu.be/xxxxx
+        if (urlObj.hostname.includes('youtu.be')) {
+            return urlObj.pathname.slice(1);
+        }
+        
+        return null;
+    } catch (e) {
+        console.error('Error extracting video ID:', e);
+        return null;
+    }
 }
 
 /**
@@ -70,7 +94,7 @@ async function playNext(guildId, lastVideoId = null) {
         
         let videoId = null;
         try {
-            videoId = playdl.extractID(cleanUrl);
+            videoId = extractVideoId(cleanUrl);
             config.state.lastPlayedVideoId = videoId;
         } catch (e) {
             console.error('Error extracting videoId:', e);
@@ -108,7 +132,7 @@ async function playNext(guildId, lastVideoId = null) {
             });
 
             resource = createAudioResource(ytdlpProcess.stdout, {
-                inputType: 'arbitrary',
+                inputType: StreamType.Arbitrary,
                 inlineVolume: true
             });
             
@@ -118,16 +142,35 @@ async function playNext(guildId, lastVideoId = null) {
             console.error('yt-dlp error:', ytdlpError.message);
             
             try {
-                console.log('Attempting play-dl stream...');
-                stream = await playdl.stream(cleanUrl, { quality: 2 });
-                resource = createAudioResource(stream.stream, { 
-                    inputType: stream.type,
+                console.log('Attempting ytdl-core stream...');
+                
+                // ตรวจสอบว่าเป็น YouTube URL ถูกต้องหรือไม่
+                if (!ytdl.validateURL(cleanUrl)) {
+                    throw new Error('Invalid YouTube URL');
+                }
+                
+                stream = ytdl(cleanUrl, {
+                    filter: 'audioonly',
+                    quality: 'highestaudio',
+                    highWaterMark: 1 << 25,
+                    dlChunkSize: 0
+                });
+                
+                resource = createAudioResource(stream, { 
+                    inputType: StreamType.Arbitrary,
                     inlineVolume: true 
                 });
-                console.log('✅ play-dl stream success');
-                message.reply(`🎵 กำลังเล่น (play-dl): ${title || cleanUrl}`);
+                
+                console.log('✅ ytdl-core stream success');
+                message.reply(`🎵 กำลังเล่น: ${title || cleanUrl}`);
+                
+                // จัดการ error ของ stream
+                stream.on('error', (err) => {
+                    console.error('ytdl-core stream error:', err);
+                });
+                
             } catch (error) {
-                console.error('play-dl error:', error.message);
+                console.error('ytdl-core error:', error.message);
                 message.reply('❌ ไม่สามารถเล่นเพลงนี้ได้');
                 config.state.isPlaying = false;
                 return playNext(guildId, lastVideoId);
@@ -225,7 +268,7 @@ async function playNext(guildId, lastVideoId = null) {
                     });
                     
                     try {
-                        config.state.lastPlayedVideoId = playdl.extractID(nextUrl);
+                        config.state.lastPlayedVideoId = extractVideoId(nextUrl);
                     } catch (e) {
                         console.error('Extract ID error:', e);
                     }
