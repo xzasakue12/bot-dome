@@ -8,6 +8,11 @@ const { getRandomYouTubeVideo } = require('../utils/youtube');
 
 let client;
 
+// Connection retry management
+let connectionRetries = 0;
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 5000; // 5 seconds
+
 // Define cookiesPaths to include potential paths for cookies.txt
 const cookiesPaths = [
     path.resolve(__dirname, '../../cookies.txt'),
@@ -89,6 +94,74 @@ function checkAndLeaveIfEmpty(voiceChannel) {
         return true;
     }
     return false;
+}
+
+/**
+ * Setup connection event handlers with error recovery
+ */
+function setupConnectionHandlers(connection, voiceChannel) {
+    // Clean up old listeners
+    connection.removeAllListeners('stateChange');
+    connection.removeAllListeners('error');
+
+    // Setup connection error handler with recovery
+    connection.on('error', async (error) => {
+        console.error('❌ Voice connection error:', error);
+        
+        if (error.message.includes('socket closed') || error.message.includes('IP discovery')) {
+            console.log('💡 Socket closed - attempting recovery...');
+            
+            if (connectionRetries < MAX_RETRIES) {
+                connectionRetries++;
+                console.log(`🔄 Retry attempt ${connectionRetries}/${MAX_RETRIES}`);
+                
+                // Wait before retry with exponential backoff
+                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * connectionRetries));
+                
+                // Destroy old connection and create new one
+                try {
+                    config.state.currentConnection?.destroy();
+                    config.state.currentConnection = null;
+                    
+                    const newConnection = joinVoiceChannel({
+                        channelId: voiceChannel.id,
+                        guildId: voiceChannel.guild.id,
+                        adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+                        selfDeaf: false,
+                        selfMute: false,
+                        debug: false
+                    });
+                    
+                    config.state.currentConnection = newConnection;
+                    setupConnectionHandlers(newConnection, voiceChannel);
+                    
+                    console.log('✅ Connection recreated successfully');
+                } catch (retryError) {
+                    console.error('❌ Retry failed:', retryError);
+                }
+            } else {
+                console.error('❌ Max retries reached, giving up');
+                connectionRetries = 0;
+                
+                if (config.state.lastTextChannel) {
+                    config.state.lastTextChannel.send('❌ ไม่สามารถเชื่อมต่อห้องเสียงได้ กรุณาลองใหม่อีกครั้ง')
+                        .catch(e => console.error('Send error:', e));
+                }
+            }
+        }
+    });
+
+    // Setup state change handler
+    connection.on('stateChange', (oldState, newState) => {
+        const stateChangeKey = `stateChange-${oldState.status}-${newState.status}`;
+        logOnce(stateChangeKey, `🔄 Voice connection: ${oldState.status} -> ${newState.status}`);
+        
+        // Reset retries when connection is ready
+        if (newState.status === 'ready') {
+            connectionRetries = 0;
+            console.log('✅ Connection stable, retries reset');
+        }
+    });
 }
 
 /**
@@ -224,24 +297,35 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 }
 
 /**
- * Wait for voice connection to be ready
+ * Wait for voice connection to be ready (เพิ่ม timeout และ better logging)
  */
-async function waitForConnectionReady(connection, timeout = 10000) {
+async function waitForConnectionReady(connection, timeout = 20000) {
     return new Promise((resolve, reject) => {
         if (connection.state.status === 'ready') {
+            console.log('✅ Connection already ready');
             return resolve();
         }
 
         const startTime = Date.now();
+        console.log(`⏳ Waiting for connection to be ready (timeout: ${timeout}ms)...`);
+        
         const checkInterval = setInterval(() => {
+            const elapsed = Date.now() - startTime;
+            
             if (connection.state.status === 'ready') {
                 clearInterval(checkInterval);
+                console.log(`✅ Connection ready after ${elapsed}ms`);
                 resolve();
-            } else if (Date.now() - startTime > timeout) {
+            } else if (elapsed > timeout) {
                 clearInterval(checkInterval);
-                reject(new Error('Voice connection not ready within timeout.'));
+                console.error(`❌ Connection timeout after ${elapsed}ms`);
+                console.error(`   Last status: ${connection.state.status}`);
+                reject(new Error(`Voice connection not ready within ${timeout}ms`));
+            } else if (elapsed % 5000 === 0) {
+                // Log progress every 5 seconds
+                console.log(`⏳ Still waiting... ${elapsed}ms elapsed, status: ${connection.state.status}`);
             }
-        }, 100);
+        }, 500); // Check every 500ms instead of 100ms
     });
 }
 
@@ -292,46 +376,44 @@ async function playNext(guildId, lastVideoId = null) {
             // Check if already connected to the voice channel
             let connection = config.state.currentConnection;
             if (!connection || connection.state.status === 'destroyed') {
+                console.log('🔌 Creating new voice connection...');
                 connection = joinVoiceChannel({
                     channelId: voiceChannel.id,
                     guildId: voiceChannel.guild.id,
                     adapterCreator: voiceChannel.guild.voiceAdapterCreator,
                     selfDeaf: false,
-                    selfMute: false
+                    selfMute: false,
+                    debug: false
                 });
                 config.state.currentConnection = connection;
 
-                // Clean up old listeners
-                connection.removeAllListeners('stateChange');
-                connection.removeAllListeners('error');
-
-                // Setup connection error handler with recovery (only once)
-                connection.on('error', (error) => {
-                    console.error('❌ Voice connection error:', error);
-                    if (error.message.includes('socket closed')) {
-                        console.error('💡 Socket closed - will retry on next song');
-                    }
-                });
-
-                // Setup state change handler (only once)
-                connection.on('stateChange', (oldState, newState) => {
-                    const stateChangeKey = `stateChange-${oldState.status}-${newState.status}`;
-                    logOnce(stateChangeKey, `🔄 Voice connection: ${oldState.status} -> ${newState.status}`);
-                });
+                // Setup connection handlers
+                setupConnectionHandlers(connection, voiceChannel);
             }
 
-            // Wait for connection to be ready
+            // Wait for connection to be ready with increased timeout
             try {
-                await waitForConnectionReady(connection, 15000);
+                await waitForConnectionReady(connection, 20000);
                 console.log('✅ Voice connection ready');
             } catch (error) {
                 console.error('❌ Voice connection not ready:', error);
                 if (message && message.channel) {
-                    message.channel.send('❌ ไม่สามารถเชื่อมต่อห้องเสียงได้')
+                    message.channel.send('❌ ไม่สามารถเชื่อมต่อห้องเสียงได้ กำลังลองใหม่...')
                         .catch(e => console.error('Send error:', e));
                 }
+                
+                // Retry with new connection
+                config.state.currentConnection?.destroy();
+                config.state.currentConnection = null;
                 config.state.isPlaying = false;
                 isProcessingNext = false;
+                
+                // Re-add to queue and retry
+                config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
+                
+                setTimeout(() => {
+                    playNext(guildId, lastVideoId);
+                }, 3000);
                 return;
             }
 
