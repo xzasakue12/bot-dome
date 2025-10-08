@@ -8,6 +8,7 @@ const config = require('./config');
 const { setClient } = require('./handlers/player');
 const { handleVoiceStateUpdate } = require('./handlers/voiceState');
 const { loadCommands, handleCommand } = require('./handlers/commandHandler');
+const { exec } = require('child_process');
 
 // สร้าง Discord client
 const client = new Client({
@@ -40,6 +41,22 @@ console.log(`📋 Loaded ${commands.size} commands`);
 // ส่ง client ให้ player handler
 setClient(client);
 
+// ฟังก์ชันสำหรับใช้ yt-dlp ดึงข้อมูลเสียงจาก YouTube
+async function playWithYtDlp(url) {
+    console.log(`🎵 Attempting to play: ${url}`);
+    exec(`./yt-dlp.exe -f bestaudio ${url}`, (error, stdout, stderr) => {
+        if (error) {
+            console.error(`❌ yt-dlp Error: ${error.message}`);
+            return;
+        }
+        if (stderr) {
+            console.error(`⚠️ yt-dlp Stderr: ${stderr}`);
+            return;
+        }
+        console.log(`✅ yt-dlp Output: ${stdout}`);
+    });
+}
+
 // Event: เมื่อบอทพร้อม
 client.once('ready', () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
@@ -49,7 +66,16 @@ client.once('ready', () => {
 
 // Event: เมื่อได้รับข้อความ
 client.on('messageCreate', async (message) => {
-    await handleCommand(message, config.settings.prefix, commands);
+    if (message.content.startsWith('!play')) {
+        const url = message.content.split(' ')[1]; // ดึง URL จากข้อความ
+        if (!url) {
+            message.reply('❌ โปรดระบุ URL ของ YouTube');
+            return;
+        }
+        await playWithYtDlp(url);
+    } else {
+        await handleCommand(message, config.settings.prefix, commands);
+    }
 });
 
 // Event: เมื่อมีการเปลี่ยนแปลง voice state
