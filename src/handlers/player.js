@@ -67,14 +67,13 @@ async function playWithYtDlp(cleanUrl, message, connection) {
     return new Promise((resolve, reject) => {
         try {
             const ytDlpPath = getYtDlpPath();
-            
+
             console.log('🎵 Starting yt-dlp stream for:', cleanUrl);
-            
+
             // สร้าง arguments สำหรับ yt-dlp
             const ytdlpArgs = [];
-            
+
             // ลองหา cookies.txt จากหลาย path
-         // ลองหา cookies.txt จากหลาย path และหลายชื่อ
             const cookiesPaths = [
                 path.join(__dirname, '../../youtube_cookies.txt'),
                 path.join(__dirname, '../../cookies.txt'),
@@ -84,7 +83,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 path.join(__dirname, '../cookies.txt'),
                 config.cookiesPath
             ];
-            
+
             let cookiesPath = null;
             for (const p of cookiesPaths) {
                 if (p && fs.existsSync(p)) {
@@ -92,7 +91,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                     break;
                 }
             }
-            
+
             // เพิ่ม cookies ถ้าเจอไฟล์
             if (cookiesPath) {
                 console.log('🍪 Using cookies for authentication:', cookiesPath);
@@ -100,7 +99,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             } else {
                 console.warn('⚠️ No cookies.txt found - YouTube may block requests');
             }
-            
+
             // เพิ่ม user agent และ headers
             ytdlpArgs.push(
                 '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -108,7 +107,13 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 '--add-header', 'Sec-Fetch-Mode:navigate'
             );
-            
+
+            // เพิ่ม buffer-size และ retries
+            ytdlpArgs.push(
+                '--buffer-size', '16K',
+                '--retries', '3'
+            );
+
             // เพิ่ม format และ options
             ytdlpArgs.push(
                 '-f', 'bestaudio/best',
@@ -120,17 +125,17 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 '-o', '-',
                 cleanUrl
             );
-            
+
             console.log('🔧 yt-dlp command:', ytDlpPath, ytdlpArgs.slice(0, 6).join(' '), '...');
 
-            const ytdlpProcess = spawn(ytDlpPath, ytdlpArgs, { 
+            const ytdlpProcess = spawn(ytDlpPath, ytdlpArgs, {
                 shell: false,
                 windowsHide: true,
                 stdio: ['ignore', 'pipe', 'pipe']
             });
 
             let stderrOutput = '';
-            
+
             ytdlpProcess.stderr.on('data', (data) => {
                 stderrOutput += data.toString();
             });
@@ -144,9 +149,9 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 if (code !== 0 && code !== null) {
                     console.error('❌ yt-dlp exit code:', code);
                     console.error('stderr:', stderrOutput);
-                    
+
                     // ตรวจจับ bot detection error
-                    if (stderrOutput.includes('Sign in to confirm') || 
+                    if (stderrOutput.includes('Sign in to confirm') ||
                         stderrOutput.includes('not a bot') ||
                         stderrOutput.includes('bot detection')) {
                         console.error('🤖 YouTube bot detection triggered!');

@@ -17,12 +17,14 @@ function getCookiesPath() {
         path.join(__dirname, '../cookies.txt'),
         config.cookiesPath
     ];
-    
+
     for (const p of cookiesPaths) {
         if (p && fs.existsSync(p)) {
+            console.log(`✅ Found cookies file at: ${p}`);
             return p;
         }
     }
+    console.warn('⚠️ No cookies file found. YouTube playback may fail.');
     return null;
 }
 
@@ -34,15 +36,13 @@ async function searchYouTubeYtDlp(query, limit = 5) {
         try {
             const ytDlpPath = getYtDlpPath();
             const cookiesPath = getCookiesPath();
-            
+
             const args = [];
-            
-            // เพิ่ม cookies ถ้ามี
+
             if (cookiesPath) {
                 args.push('--cookies', cookiesPath);
             }
-            
-            // เพิ่ม search query และ options
+
             args.push(
                 `ytsearch${limit}:${query}`,
                 '--get-id',
@@ -50,7 +50,7 @@ async function searchYouTubeYtDlp(query, limit = 5) {
                 '--no-warnings',
                 '--quiet'
             );
-            
+
             const ytdlpProcess = spawn(ytDlpPath, args);
 
             let output = '';
@@ -62,7 +62,7 @@ async function searchYouTubeYtDlp(query, limit = 5) {
                 if (code === 0 && output.trim()) {
                     const lines = output.trim().split('\n');
                     const results = [];
-                    
+
                     for (let i = 0; i < lines.length; i += 2) {
                         if (lines[i] && lines[i + 1]) {
                             results.push({
@@ -72,19 +72,20 @@ async function searchYouTubeYtDlp(query, limit = 5) {
                             });
                         }
                     }
-                    
+
                     resolve(results);
                 } else {
+                    console.warn('⚠️ No results found for query:', query);
                     resolve([]);
                 }
             });
 
             ytdlpProcess.on('error', (err) => {
-                console.error('yt-dlp search error:', err);
+                console.error('❌ yt-dlp search error:', err);
                 resolve([]);
             });
         } catch (error) {
-            console.error('yt-dlp search error:', error);
+            console.error('❌ yt-dlp search error:', error);
             resolve([]);
         }
     });
@@ -130,14 +131,13 @@ async function getVideoInfo(url) {
         try {
             const ytDlpPath = getYtDlpPath();
             const cookiesPath = getCookiesPath();
-            
+
             const args = [];
-            
-            // เพิ่ม cookies ถ้ามี
+
             if (cookiesPath) {
                 args.push('--cookies', cookiesPath);
             }
-            
+
             args.push(
                 '--get-title',
                 '--get-duration',
@@ -146,7 +146,7 @@ async function getVideoInfo(url) {
                 '--no-playlist',
                 url
             );
-            
+
             const process = spawn(ytDlpPath, args);
 
             let output = '';
@@ -164,15 +164,17 @@ async function getVideoInfo(url) {
                         thumbnail: lines[2] || null
                     });
                 } else {
+                    console.warn('⚠️ Failed to retrieve video info for URL:', url);
                     resolve(null);
                 }
             });
 
-            process.on('error', () => {
+            process.on('error', (err) => {
+                console.error('❌ Error getting video info:', err);
                 resolve(null);
             });
         } catch (error) {
-            console.error('Error getting video info:', error);
+            console.error('❌ Error getting video info:', error);
             resolve(null);
         }
     });

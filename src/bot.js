@@ -35,6 +35,7 @@ if (!cookiesPath) {
     console.warn('⚠️ cookies.txt or youtube_cookies.txt not found. YouTube playback may fail.');
     console.warn('💡 Create cookies.txt or youtube_cookies.txt file to fix YouTube bot detection issues.');
     console.warn('📖 See: https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp');
+    console.warn('🔧 Ensure your cookies file is up-to-date and valid.');
 }
 
 // สร้าง Discord client
@@ -76,8 +77,23 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 });
 
 // Error Handling
-client.on('error', (error) => console.error('Discord client error:', error));
-client.on('rateLimit', (info) => console.warn('Rate limited:', info));
+client.on('error', (error) => {
+    console.error('Discord client error:', error);
+});
+
+client.on('rateLimit', (info) => {
+    console.warn('Rate limited:', info);
+});
+
+process.on('unhandledRejection', (error) => {
+    console.error('Unhandled promise rejection:', error);
+    console.warn('💡 Check if yt-dlp or cookies are causing the issue.');
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception:', error);
+    console.warn('💡 Ensure all dependencies and configurations are correct.');
+});
 
 // Login
 client.login(process.env.TOKEN || process.env.DISCORD_BOT_TOKEN)
@@ -93,6 +109,3 @@ process.on('SIGINT', () => {
     client.destroy();
     process.exit(0);
 });
-
-process.on('unhandledRejection', (error) => console.error('Unhandled promise rejection:', error));
-process.on('uncaughtException', (error) => console.error('Uncaught exception:', error));
