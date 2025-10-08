@@ -12,7 +12,7 @@ let client;
 const cookiesPaths = [
     path.resolve(__dirname, '../../cookies.txt'),
     path.resolve(__dirname, '../../youtube_cookies.txt'),
-    '/etc/secrets/cookies.txt' // Example path for deployment environments
+    '/etc/secrets/cookies.txt'
 ];
 
 // Utility to track and suppress duplicate logs
@@ -97,14 +97,11 @@ function checkAndLeaveIfEmpty(voiceChannel) {
 async function playWithYtDlp(cleanUrl, message, connection) {
     return new Promise((resolve, reject) => {
         try {
-            // Ensure ytdlpArgs is declared and initialized before use
             const ytdlpArgs = [];
-
             const ytDlpPath = getYtDlpPath();
 
             logOnce('yt-dlp-start', `🎵 Starting yt-dlp stream for: ${cleanUrl}`);
 
-            // Ensure cookiesPath is declared and initialized before use
             let cookiesPath = null;
             for (const p of cookiesPaths) {
                 if (p && fs.existsSync(p)) {
@@ -113,7 +110,6 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 }
             }
 
-            // Add cookies and other arguments to ytdlpArgs
             if (cookiesPath) {
                 console.log('🍪 Using cookies for authentication:', cookiesPath);
                 ytdlpArgs.push('--cookies', cookiesPath);
@@ -162,7 +158,6 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                     console.error('❌ yt-dlp exit code:', code);
                     console.error('stderr:', stderrOutput);
 
-                    // ตรวจจับ bot detection error
                     if (stderrOutput.includes('Sign in to confirm') ||
                         stderrOutput.includes('not a bot') ||
                         stderrOutput.includes('bot detection')) {
@@ -171,18 +166,14 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                         console.error('📖 Export new cookies from YouTube: https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp');
                     }
                 }
-
-                console.log('🔄 yt-dlp process closed. Cleaning up...');
-                ffmpegProcess.kill(); // Terminate FFmpeg when yt-dlp finishes
             });
 
-            const bassGain = config.audioSettings?.bassGain || 10; // Default to 10 dB if undefined
+            const bassGain = config.audioSettings?.bassGain || 10;
 
-            // Adjust FFmpeg arguments to lower bitrate and reduce memory usage
             const ffmpegArgs = [
                 '-i', 'pipe:0',
                 '-af', `bass=g=${bassGain}`,
-                '-b:a', '48k', // Reduced from 64k to 48k
+                '-b:a', '48k',
                 '-f', 'opus',
                 '-hide_banner', '-loglevel', 'error',
                 'pipe:1'
@@ -194,10 +185,10 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 stdio: ['pipe', 'pipe', 'pipe']
             });
 
-            ytdlpProcess.stdout.pipe(ffmpegProcess.stdin); // Pipe yt-dlp output to FFmpeg
+            ytdlpProcess.stdout.pipe(ffmpegProcess.stdin);
 
             ffmpegProcess.stderr.on('data', (data) => {
-                if (process.env.DEBUG) { // Only log FFmpeg errors in debug mode
+                if (process.env.DEBUG) {
                     console.error('FFmpeg error:', data.toString());
                 }
             });
@@ -210,24 +201,9 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 reject(err);
             });
 
-            let retryCount = 0;
-            const maxRetries = 3;
-
-            function retryPlay() {
-                if (retryCount < maxRetries) {
-                    retryCount++;
-                    console.log(`🔄 Retrying playback... Attempt ${retryCount}`);
-                    playWithYtDlp(cleanUrl, message, connection).catch(retryPlay);
-                } else {
-                    console.error('❌ Maximum retry attempts reached. Skipping to the next song.');
-                    playNext(guildId, lastVideoId);
-                }
-            }
-
             ffmpegProcess.on('close', (code) => {
-                if (code !== 0) {
+                if (code !== 0 && code !== null) {
                     console.error(`FFmpeg exited with code: ${code}`);
-                    retryPlay();
                 }
             });
 
@@ -251,7 +227,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 }
 
 /**
- * Add a utility function to wait for the voice connection to be ready
+ * Wait for voice connection to be ready
  */
 async function waitForConnectionReady(connection, timeout = 10000) {
     return new Promise((resolve, reject) => {
@@ -263,7 +239,7 @@ async function waitForConnectionReady(connection, timeout = 10000) {
             } else if (Date.now() - startTime > timeout) {
                 reject(new Error('Voice connection not ready within timeout.'));
             } else {
-                setTimeout(checkReady, 100); // Check again after 100ms
+                setTimeout(checkReady, 100);
             }
         }
 
@@ -271,247 +247,234 @@ async function waitForConnectionReady(connection, timeout = 10000) {
     });
 }
 
+// Lock mechanism to prevent race conditions
+let isProcessingNext = false;
+
 /**
- * เล่นเพลงถัดไป
+ * เล่นเพลงถัดไป (แก้ไขแล้ว - ป้องกัน race condition และ duplicate streams)
  */
 async function playNext(guildId, lastVideoId = null) {
-    if (config.state.leaveTimeout) clearTimeout(config.state.leaveTimeout);
-    if (global.nextTimeout) clearTimeout(global.nextTimeout);
-
-    if (!lastVideoId && config.state.lastPlayedVideoId) {
-        lastVideoId = config.state.lastPlayedVideoId;
+    // Prevent multiple simultaneous calls
+    if (isProcessingNext) {
+        console.log('⚠️ Already processing next song, skipping duplicate call...');
+        return;
     }
+    
+    isProcessingNext = true;
+    
+    try {
+        if (config.state.leaveTimeout) clearTimeout(config.state.leaveTimeout);
+        if (global.nextTimeout) clearTimeout(global.nextTimeout);
 
-    if (config.queue.length > 0) {
-        config.state.isPlaying = true;
-        config.state.isPaused = false;
-        
-        const { cleanUrl, voiceChannel, message, textChannel, title } = config.queue.shift();
-        console.log('🎵 Playing from queue:', cleanUrl);
-        
-        config.state.currentSong = { cleanUrl, title: title || cleanUrl, voiceChannel };
-        
-        if (textChannel) {
-            config.state.lastTextChannel = textChannel;
-        }
-        
-        let videoId = null;
-        try {
-            videoId = extractVideoId(cleanUrl);
-            config.state.lastPlayedVideoId = videoId;
-        } catch (e) {
-            console.error('Error extracting videoId:', e);
+        if (!lastVideoId && config.state.lastPlayedVideoId) {
+            lastVideoId = config.state.lastPlayedVideoId;
         }
 
-        const connection = joinVoiceChannel({
-            channelId: voiceChannel.id,
-            guildId: voiceChannel.guild.id,
-            adapterCreator: voiceChannel.guild.voiceAdapterCreator
-        });
-        config.state.currentConnection = connection;
-        
-        let resource;
-        
-        try {
-            message.reply(`🎵 กำลังโหลด: **${title || cleanUrl}**`);
-            resource = await playWithYtDlp(cleanUrl, message, connection);
-        } catch (error) {
-            console.error('❌ Failed to play:', error);
-            message.reply('❌ ไม่สามารถเล่นเพลงนี้ได้');
-            config.state.isPlaying = false;
-            return playNext(guildId, lastVideoId);
-        }
-
-        if (!resource) {
-            console.error('❌ No resource created');
-            message.reply('❌ ไม่สามารถสร้าง audio stream ได้');
-            config.state.isPlaying = false;
-            return playNext(guildId, lastVideoId);
-        }
-
-        const player = createAudioPlayer();
-        config.state.currentPlayer = player;
-        connection.subscribe(player);
-        
-        player.play(resource);
-
-        player.on(AudioPlayerStatus.Playing, () => {
-            console.log('🎶 Now playing:', title || cleanUrl);
-            message.channel.send(`🎶 กำลังเล่น: **${title || cleanUrl}**`)
-                .catch(e => console.error('Send error:', e));
-        });
-
-        player.on(AudioPlayerStatus.Idle, () => {
-            console.log('⏹️ Player idle, playing next...');
+        if (config.queue.length > 0) {
+            config.state.isPlaying = true;
+            config.state.isPaused = false;
             
-            if (voiceChannel && checkAndLeaveIfEmpty(voiceChannel)) {
-                return;
+            const { cleanUrl, voiceChannel, message, textChannel, title } = config.queue.shift();
+            console.log('🎵 Playing from queue:', cleanUrl);
+            
+            config.state.currentSong = { cleanUrl, title: title || cleanUrl, voiceChannel };
+            
+            if (textChannel) {
+                config.state.lastTextChannel = textChannel;
             }
             
-            if (config.loop.mode === 'song' && config.state.currentSong) {
-                config.queue.unshift({ 
-                    cleanUrl: config.state.currentSong.cleanUrl, 
-                    voiceChannel: config.state.currentSong.voiceChannel, 
-                    message: { reply: (msg) => {}, channel: message.channel },
-                    textChannel: config.state.lastTextChannel,
-                    title: config.state.currentSong.title 
+            let videoId = null;
+            try {
+                videoId = extractVideoId(cleanUrl);
+                config.state.lastPlayedVideoId = videoId;
+            } catch (e) {
+                console.error('Error extracting videoId:', e);
+            }
+
+            // Check if already connected to the voice channel
+            let connection = config.state.currentConnection;
+            if (!connection || connection.state.status === 'destroyed') {
+                connection = joinVoiceChannel({
+                    channelId: voiceChannel.id,
+                    guildId: voiceChannel.guild.id,
+                    adapterCreator: voiceChannel.guild.voiceAdapterCreator
                 });
-            } else if (config.loop.mode === 'queue' && config.queue.length === 0 && config.loop.originalQueue.length > 0) {
-                config.loop.originalQueue.forEach(song => config.queue.push({...song}));
+                config.state.currentConnection = connection;
+
+                // Clean up old listeners
+                connection.removeAllListeners('stateChange');
+                connection.removeAllListeners('error');
+
+                // Setup connection error handler (only once)
+                connection.on('error', (error) => {
+                    console.error('❌ Voice connection error:', error);
+                    if (error.message.includes('socket closed')) {
+                        console.error('💡 Socket closed unexpectedly. Will retry on next song.');
+                    }
+                });
+
+                // Setup state change handler (only once)
+                connection.on('stateChange', (oldState, newState) => {
+                    const stateChangeKey = `stateChange-${oldState.status}-${newState.status}`;
+                    logOnce(stateChangeKey, `🔄 Voice connection state changed: ${oldState.status} -> ${newState.status}`);
+                });
+            }
+
+            // Wait for connection to be ready
+            try {
+                await waitForConnectionReady(connection, 15000);
+                console.log('✅ Voice connection is ready! Starting playback.');
+            } catch (error) {
+                console.error('❌ Voice connection not ready:', error);
+                message.reply('❌ ไม่สามารถเชื่อมต่อห้องเสียงได้');
+                config.state.isPlaying = false;
+                isProcessingNext = false;
+                return playNext(guildId, lastVideoId);
+            }
+
+            let resource;
+            
+            try {
+                message.reply(`🎵 กำลังโหลด: **${title || cleanUrl}**`);
+                resource = await playWithYtDlp(cleanUrl, message, connection);
+            } catch (error) {
+                console.error('❌ Failed to play:', error);
+                message.reply('❌ ไม่สามารถเล่นเพลงนี้ได้');
+                config.state.isPlaying = false;
+                isProcessingNext = false;
+                return playNext(guildId, lastVideoId);
+            }
+
+            if (!resource) {
+                console.error('❌ No resource created');
+                message.reply('❌ ไม่สามารถสร้าง audio stream ได้');
+                config.state.isPlaying = false;
+                isProcessingNext = false;
+                return playNext(guildId, lastVideoId);
+            }
+
+            // Create or reuse player
+            let player = config.state.currentPlayer;
+            if (!player) {
+                player = createAudioPlayer();
+                config.state.currentPlayer = player;
+                connection.subscribe(player);
+            } else {
+                // Clean up old listeners
+                player.removeAllListeners();
             }
             
-            playNext(guildId, videoId);
-        });
+            player.play(resource);
 
-        player.on('error', error => {
-            console.error('❌ Audio player error:', error);
-            message.channel.send('❌ เกิดข้อผิดพลาดในการเล่นเพลง')
-                .catch(e => console.error('Send error:', e));
-            playNext(guildId, videoId);
-        });
+            player.on(AudioPlayerStatus.Playing, () => {
+                console.log('🎶 Now playing:', title || cleanUrl);
+                message.channel.send(`🎶 กำลังเล่น: **${title || cleanUrl}**`)
+                    .catch(e => console.error('Send error:', e));
+            });
 
-        connection.on('error', (error) => {
-            console.error('❌ Voice connection error:', error);
-            if (error.message.includes('socket closed')) {
-                console.error('💡 Socket closed unexpectedly. Retrying connection...');
-                // Add retry logic or handle the error appropriately
-            }
-        });
-
-        // Update voice connection state change logs to prevent duplicates
-        connection.on('stateChange', async (oldState, newState) => {
-            const stateChangeKey = `stateChange-${oldState.status}-${newState.status}`;
-            logOnce(stateChangeKey, `🔄 Voice connection state changed: ${oldState.status} -> ${newState.status}`);
-
-            if (newState.status === 'ready') {
-                const readyKey = `connection-ready-${newState.status}`;
-                logOnce(readyKey, '✅ Voice connection is ready! Starting playback.');
-
-                try {
-                    resource = await playWithYtDlp(cleanUrl, message, connection);
-                    if (!resource) {
-                        console.error('❌ No resource created');
-                        message.reply('❌ ไม่สามารถสร้าง audio stream ได้');
-                        config.state.isPlaying = false;
-                        return playNext(guildId, lastVideoId);
-                    }
-
-                    const player = createAudioPlayer();
-                    config.state.currentPlayer = player;
-                    connection.subscribe(player);
-
-                    player.play(resource);
-
-                    player.on(AudioPlayerStatus.Playing, () => {
-                        const playingKey = `playing-${cleanUrl}`;
-                        logOnce(playingKey, `🎶 Now playing: ${title || cleanUrl}`);
-                        message.channel.send(`🎶 กำลังเล่น: **${title || cleanUrl}**`)
-                            .catch(e => console.error('Send error:', e));
-                    });
-
-                    player.on(AudioPlayerStatus.Idle, () => {
-                        console.log('⏹️ Player idle, playing next...');
-
-                        if (voiceChannel && checkAndLeaveIfEmpty(voiceChannel)) {
-                            return;
-                        }
-
-                        if (config.loop.mode === 'song' && config.state.currentSong) {
-                            config.queue.unshift({ 
-                                cleanUrl: config.state.currentSong.cleanUrl, 
-                                voiceChannel: config.state.currentSong.voiceChannel, 
-                                message: { reply: (msg) => {}, channel: message.channel },
-                                textChannel: config.state.lastTextChannel,
-                                title: config.state.currentSong.title 
-                            });
-                        } else if (config.loop.mode === 'queue' && config.queue.length === 0 && config.loop.originalQueue.length > 0) {
-                            config.loop.originalQueue.forEach(song => config.queue.push({...song}));
-                        }
-
-                        playNext(guildId, videoId);
-                    });
-
-                    player.on('error', error => {
-                        console.error('❌ Audio player error:', error);
-                        message.channel.send('❌ เกิดข้อผิดพลาดในการเล่นเพลง')
-                            .catch(e => console.error('Send error:', e));
-                        playNext(guildId, videoId);
-                    });
-                } catch (error) {
-                    console.error('❌ Failed to play:', error);
-                    message.reply('❌ ไม่สามารถเล่นเพลงนี้ได้');
-                    config.state.isPlaying = false;
-                    return playNext(guildId, lastVideoId);
+            player.on(AudioPlayerStatus.Idle, () => {
+                console.log('⏹️ Player idle, playing next...');
+                
+                if (voiceChannel && checkAndLeaveIfEmpty(voiceChannel)) {
+                    isProcessingNext = false;
+                    return;
                 }
-            }
-        });
+                
+                if (config.loop.mode === 'song' && config.state.currentSong) {
+                    config.queue.unshift({ 
+                        cleanUrl: config.state.currentSong.cleanUrl, 
+                        voiceChannel: config.state.currentSong.voiceChannel, 
+                        message: { reply: (msg) => {}, channel: message.channel },
+                        textChannel: config.state.lastTextChannel,
+                        title: config.state.currentSong.title 
+                    });
+                } else if (config.loop.mode === 'queue' && config.queue.length === 0 && config.loop.originalQueue.length > 0) {
+                    config.loop.originalQueue.forEach(song => config.queue.push({...song}));
+                }
+                
+                isProcessingNext = false;
+                playNext(guildId, videoId);
+            });
 
-        if (!connection || connection.state.status !== 'ready') {
-            console.error('❌ Voice connection is not ready. Waiting for readiness.');
+            player.on('error', error => {
+                console.error('❌ Audio player error:', error);
+                message.channel.send('❌ เกิดข้อผิดพลาดในการเล่นเพลง')
+                    .catch(e => console.error('Send error:', e));
+                isProcessingNext = false;
+                playNext(guildId, videoId);
+            });
+
+            isProcessingNext = false;
             return;
         }
 
-        return;
-    }
+        // Autoplay
+        if (config.queue.length === 0 && lastVideoId && config.settings.autoplayEnabled) {
+            console.log('🔄 Starting autoplay...');
+            isProcessingNext = false;
+            
+            global.nextTimeout = setTimeout(async () => {
+                if (config.queue.length === 0) {
+                    const nextUrl = await getRandomYouTubeVideo();
 
-    // Autoplay
-    if (config.queue.length === 0 && lastVideoId && config.settings.autoplayEnabled) {
-        console.log('🔄 Starting autoplay...');
-        global.nextTimeout = setTimeout(async () => {
-            if (config.queue.length === 0) {
-                const nextUrl = await getRandomYouTubeVideo();
+                    let voiceChannel;
+                    const guild = client.guilds.cache.get(guildId);
+                    if (guild) {
+                        const member = guild.members.me;
+                        if (member && member.voice && member.voice.channelId) {
+                            voiceChannel = guild.channels.cache.get(member.voice.channelId);
+                        }
+                    }
 
-                let voiceChannel;
-                const guild = client.guilds.cache.get(guildId);
-                if (guild) {
-                    const member = guild.members.me;
-                    if (member && member.voice && member.voice.channelId) {
-                        voiceChannel = guild.channels.cache.get(member.voice.channelId);
+                    if (nextUrl && voiceChannel) {
+                        console.log('✅ Adding autoplay song:', nextUrl);
+                        config.queue.push({ 
+                            cleanUrl: nextUrl, 
+                            voiceChannel,
+                            textChannel: config.state.lastTextChannel,
+                            message: { 
+                                reply: (msg) => {
+                                    if (config.state.lastTextChannel) {
+                                        config.state.lastTextChannel.send(`🎲 Autoplay: ${msg}`)
+                                            .catch(e => console.error('Send error:', e));
+                                    }
+                                },
+                                channel: config.state.lastTextChannel
+                            } 
+                        });
+                        
+                        try {
+                            config.state.lastPlayedVideoId = extractVideoId(nextUrl);
+                        } catch (e) {
+                            console.error('Extract ID error:', e);
+                        }
+                        
+                        return playNext(guildId, config.state.lastPlayedVideoId);
                     }
                 }
+            }, config.settings.autoplayDelay);
+            return;
+        }
 
-                if (nextUrl && voiceChannel) {
-                    console.log('✅ Adding autoplay song:', nextUrl);
-                    config.queue.push({ 
-                        cleanUrl: nextUrl, 
-                        voiceChannel,
-                        textChannel: config.state.lastTextChannel,
-                        message: { 
-                            reply: (msg) => {
-                                if (config.state.lastTextChannel) {
-                                    config.state.lastTextChannel.send(`🎲 Autoplay: ${msg}`)
-                                        .catch(e => console.error('Send error:', e));
-                                }
-                            },
-                            channel: config.state.lastTextChannel
-                        } 
-                    });
-                    
-                    try {
-                        config.state.lastPlayedVideoId = extractVideoId(nextUrl);
-                    } catch (e) {
-                        console.error('Extract ID error:', e);
-                    }
-                    
-                    return playNext(guildId, config.state.lastPlayedVideoId);
+        // ไม่มีเพลง ออกจากห้อง
+        console.log('⏸️ Queue empty, setting leave timeout...');
+        if (config.state.currentConnection) {
+            config.state.leaveTimeout = setTimeout(() => {
+                if (config.state.currentConnection) {
+                    config.state.currentConnection.destroy();
+                    console.log('👋 Left voice channel after inactivity');
                 }
-            }
-        }, config.settings.autoplayDelay);
-        return;
+                config.state.isPlaying = false;
+            }, config.settings.leaveTimeout);
+        }
+        config.state.isPlaying = false;
+        isProcessingNext = false;
+        
+    } catch (error) {
+        console.error('❌ Error in playNext:', error);
+        isProcessingNext = false;
+        throw error;
     }
-
-    // ไม่มีเพลง ออกจากห้อง
-    console.log('⏸️ Queue empty, setting leave timeout...');
-    if (config.state.currentConnection) {
-        config.state.leaveTimeout = setTimeout(() => {
-            if (config.state.currentConnection) {
-                config.state.currentConnection.destroy();
-                console.log('👋 Left voice channel after inactivity');
-            }
-            config.state.isPlaying = false;
-        }, config.settings.leaveTimeout);
-    }
-    config.state.isPlaying = false;
 }
 
 module.exports = {
