@@ -1,12 +1,12 @@
 const dotenv = require('dotenv');
 const fs = require('fs');
 const { Client, GatewayIntentBits } = require('discord.js');
-const playdl = require('play-dl');
+const ytdl = require('ytdl-core');
 const config = require('./config');
 const { setClient } = require('./handlers/player');
 const { handleVoiceStateUpdate } = require('./handlers/voiceState');
 const { loadCommands, handleCommand } = require('./handlers/commandHandler');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
 
 // โหลด .env
 dotenv.config({ path: '/etc/secrets/.env' }); // สำหรับ Render
@@ -22,22 +22,6 @@ const client = new Client({
     ]
 });
 
-// ตั้งค่า play-dl: ใช้ cookies.txt บนเครื่อง local, API Key บน Render
-if (fs.existsSync('cookies.txt')) {
-    const cookie = fs.readFileSync('cookies.txt', 'utf8');
-    if (cookie && cookie.includes(';')) {
-        playdl.setToken({ youtube: { cookie } });
-        console.log('✅ YouTube cookie loaded (local)');
-    } else {
-        console.error('❌ Invalid cookies.txt format');
-    }
-} else if (process.env.YOUTUBE_API_KEY) {
-    playdl.setToken({ youtube: { apiKey: process.env.YOUTUBE_API_KEY } });
-    console.log('✅ YouTube API Key loaded (Render)');
-} else {
-    console.warn('⚠️ No YouTube credentials found. Play commands will fail.');
-}
-
 // โหลดคำสั่งทั้งหมด
 const commands = loadCommands();
 console.log(`📋 Loaded ${commands.size} commands`);
@@ -45,11 +29,17 @@ console.log(`📋 Loaded ${commands.size} commands`);
 // ส่ง client ให้ player handler
 setClient(client);
 
-// ฟังก์ชันเล่นเพลงด้วย play-dl
+// ฟังก์ชันเล่นเพลงด้วย ytdl-core
 async function playMusic(url, message) {
     const voiceChannel = message.member?.voice?.channel;
     if (!voiceChannel) {
         message.reply('❌ คุณต้องอยู่ในห้องเสียงเพื่อใช้คำสั่งนี้');
+        return;
+    }
+
+    // ตรวจสอบว่าเป็น YouTube URL หรือไม่
+    if (!ytdl.validateURL(url)) {
+        message.reply('❌ URL ไม่ถูกต้อง โปรดใช้ลิงก์ YouTube');
         return;
     }
 
@@ -60,16 +50,38 @@ async function playMusic(url, message) {
     });
 
     try {
-        const stream = await playdl.stream(url);
-        const resource = createAudioResource(stream.stream, { inputType: stream.type });
+        // ดึงข้อมูลเพลง
+        const info = await ytdl.getInfo(url);
+        const title = info.videoDetails.title;
+        
+        message.reply(`🎵 กำลังโหลด: **${title}**`);
+
+        // สร้าง stream
+        const stream = ytdl(url, {
+            filter: 'audioonly',
+            quality: 'highestaudio',
+            highWaterMark: 1 << 25,
+            dlChunkSize: 0
+        });
+
+        const resource = createAudioResource(stream, {
+            inputType: StreamType.Arbitrary,
+            inlineVolume: true
+        });
 
         const player = createAudioPlayer();
+        
+        // ตั้งค่า volume เริ่มต้น
+        if (resource.volume) {
+            resource.volume.setVolume(0.5);
+        }
+
         player.play(resource);
         connection.subscribe(player);
 
         player.on(AudioPlayerStatus.Playing, () => {
-            console.log('🎶 กำลังเล่นเพลง');
-            message.reply('🎶 กำลังเล่นเพลงในห้องเสียง');
+            console.log(`🎶 กำลังเล่น: ${title}`);
+            message.channel.send(`🎶 กำลังเล่น: **${title}**`);
         });
 
         player.on(AudioPlayerStatus.Idle, () => {
@@ -79,13 +91,32 @@ async function playMusic(url, message) {
 
         player.on('error', (err) => {
             console.error('❌ Audio Player Error:', err);
-            message.reply('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
+            message.channel.send('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
             connection.destroy();
         });
 
+        // จัดการ error ของ stream
+        stream.on('error', (err) => {
+            console.error('❌ Stream Error:', err);
+            message.channel.send('❌ เกิดข้อผิดพลาดในการดึงข้อมูลเพลง');
+            if (connection) connection.destroy();
+        });
+
     } catch (err) {
-        console.error('❌ play-dl error:', err);
-        message.reply('❌ เกิดข้อผิดพลาดในการดึงเพลง');
+        console.error('❌ ytdl-core error:', err);
+        
+        let errorMsg = '❌ เกิดข้อผิดพลาดในการเล่นเพลง';
+        
+        if (err.message.includes('Video unavailable')) {
+            errorMsg = '❌ วิดีโอนี้ไม่สามารถเล่นได้ (อาจถูกลบหรือตั้งเป็นส่วนตัว)';
+        } else if (err.message.includes('age-restricted')) {
+            errorMsg = '❌ วิดีโอนี้มีการจำกัดอายุ ไม่สามารถเล่นได้';
+        } else if (err.message.includes('private')) {
+            errorMsg = '❌ วิดีโอนี้เป็นส่วนตัว ไม่สามารถเล่นได้';
+        }
+        
+        message.reply(errorMsg);
+        if (connection) connection.destroy();
     }
 }
 
@@ -93,6 +124,7 @@ async function playMusic(url, message) {
 client.once('ready', () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
     console.log('🎵 Music Bot is ready!');
+    console.log('✅ Using ytdl-core for YouTube playback');
     client.user.setActivity('!help | Music Bot', { type: 2 });
 });
 
@@ -103,7 +135,7 @@ client.on('messageCreate', async (message) => {
     if (message.content.startsWith('!play')) {
         const url = message.content.split(' ')[1];
         if (!url) {
-            message.reply('❌ โปรดระบุ URL ของ YouTube');
+            message.reply('❌ โปรดระบุ URL ของ YouTube\nตัวอย่าง: `!play https://www.youtube.com/watch?v=xxxxx`');
             return;
         }
         await playMusic(url, message);
