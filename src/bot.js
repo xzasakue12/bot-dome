@@ -1,4 +1,4 @@
-require('dotenv').config({ path: '/etc/secrets/.env' }); 
+require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 const playdl = require('play-dl');
 const config = require('./config');
@@ -17,14 +17,13 @@ const client = new Client({
 });
 
 // ตั้งค่า play-dl cookie
-if (process.env.YOUTUBE_COOKIE || process.env.YT_COOKIE) {
+if (process.env.YOUTUBE_COOKIE) {
     playdl.setToken({
         youtube: {
-            apikey: process.env.YOUTUBE_API_KEY,
-            // cookie: process.env.YOUTUBE_COOKIE || process.env.YT_COOKIE
+            cookie: process.env.YOUTUBE_COOKIE
         }
     });
-    console.log('✅ YouTube API key and cookie loaded');
+    console.log('✅ YouTube cookie loaded');
 }
 
 // โหลดคำสั่งทั้งหมด
