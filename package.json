@@ -4,7 +4,7 @@
   "main": "src/bot.js",
   "description": "Full-featured Discord Music Bot with queue management, volume control, and auto-play",
   "scripts": {
-    "start": "node src/bot.js",
+    "start": "npm install && node src/bot.js",
     "dev": "node src/bot.js",
     "pm2": "pm2 start src/bot.js --name my-discord-music-bot",
     "pm2:stop": "pm2 stop my-discord-music-bot",
