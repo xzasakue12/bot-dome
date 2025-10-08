@@ -15,6 +15,30 @@ const cookiesPaths = [
     '/etc/secrets/cookies.txt' // Example path for deployment environments
 ];
 
+// Utility to track and suppress duplicate logs
+const lastLogs = new Map();
+
+function logOnce(key, message) {
+    if (lastLogs.get(key) !== message) {
+        console.log(message);
+        lastLogs.set(key, message);
+    }
+}
+
+function warnOnce(key, message) {
+    if (lastLogs.get(key) !== message) {
+        console.warn(message);
+        lastLogs.set(key, message);
+    }
+}
+
+function errorOnce(key, message) {
+    if (lastLogs.get(key) !== message) {
+        console.error(message);
+        lastLogs.set(key, message);
+    }
+}
+
 function setClient(discordClient) {
     client = discordClient;
 }
@@ -78,7 +102,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             const ytDlpPath = getYtDlpPath();
 
-            console.log('🎵 Starting yt-dlp stream for:', cleanUrl);
+            logOnce('yt-dlp-start', `🎵 Starting yt-dlp stream for: ${cleanUrl}`);
 
             // Ensure cookiesPath is declared and initialized before use
             let cookiesPath = null;
@@ -94,7 +118,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 console.log('🍪 Using cookies for authentication:', cookiesPath);
                 ytdlpArgs.push('--cookies', cookiesPath);
             } else {
-                console.warn('⚠️ No cookies.txt found - YouTube may block requests');
+                warnOnce('no-cookies', '⚠️ No cookies.txt found - YouTube may block requests');
             }
 
             ytdlpArgs.push(
@@ -129,7 +153,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             });
 
             ytdlpProcess.on('error', (err) => {
-                console.error('❌ yt-dlp process error:', err);
+                errorOnce('yt-dlp-error', `❌ yt-dlp process error: ${err}`);
                 reject(err);
             });
 
