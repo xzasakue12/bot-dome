@@ -534,9 +534,13 @@ async function playNext(guildId, lastVideoId = null) {
                     console.warn('⚠️ Player went idle without a current song. Possible error occurred.');
                 }
 
-                // Cleanup processes for the current resource
+                // Ensure the resource cleanup is not called prematurely
                 if (resource.metadata && resource.metadata.cleanup) {
-                    resource.metadata.cleanup();
+                    try {
+                        resource.metadata.cleanup();
+                    } catch (cleanupError) {
+                        console.error('❌ Error during resource cleanup:', cleanupError);
+                    }
                 }
 
                 // Check if the queue is empty
@@ -577,23 +581,36 @@ async function playNext(guildId, lastVideoId = null) {
                 }
 
                 // Play the next song in the queue
-                playNext(guildId, videoId);
+                try {
+                    playNext(guildId, videoId);
+                } catch (playNextError) {
+                    console.error('❌ Error during playNext:', playNextError);
+                }
             });
 
             player.on('error', error => {
                 console.error('❌ Audio player error:', error);
-                
-                // Cleanup processes
+
+                // Ensure the resource cleanup is not called prematurely
                 if (resource.metadata && resource.metadata.cleanup) {
-                    resource.metadata.cleanup();
+                    try {
+                        resource.metadata.cleanup();
+                    } catch (cleanupError) {
+                        console.error('❌ Error during resource cleanup:', cleanupError);
+                    }
                 }
-                
+
                 if (message && message.channel) {
                     message.channel.send('❌ เกิดข้อผิดพลาดในการเล่นเพลง')
                         .catch(e => console.error('Send error:', e));
                 }
                 processingGuilds.delete(guildId);
-                playNext(guildId, videoId);
+
+                try {
+                    playNext(guildId, videoId);
+                } catch (playNextError) {
+                    console.error('❌ Error during playNext:', playNextError);
+                }
             });
 
             processingGuilds.delete(guildId);
