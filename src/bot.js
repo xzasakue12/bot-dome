@@ -9,6 +9,7 @@ const { setClient } = require('./handlers/player');
 const { handleVoiceStateUpdate } = require('./handlers/voiceState');
 const { loadCommands, handleCommand } = require('./handlers/commandHandler');
 const { exec } = require('child_process');
+const fs = require('fs');
 
 // สร้าง Discord client
 const client = new Client({
@@ -105,3 +106,9 @@ process.on('SIGINT', () => {
 
 process.on('unhandledRejection', (error) => console.error('Unhandled promise rejection:', error));
 process.on('uncaughtException', (error) => console.error('Uncaught exception:', error));
+
+if (!fs.existsSync('cookies.txt')) {
+    console.error('❌ cookies.txt not found. Please upload the file.');
+} else {
+    console.log('✅ cookies.txt found and ready to use.');
+}
