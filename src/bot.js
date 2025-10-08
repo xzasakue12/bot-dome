@@ -1,7 +1,6 @@
 const dotenv = require('dotenv');
 const fs = require('fs');
 const { Client, GatewayIntentBits } = require('discord.js');
-const ytdl = require('@distube/ytdl-core');
 const config = require('./config');
 const { setClient } = require('./handlers/player');
 const { handleVoiceStateUpdate } = require('./handlers/voiceState');
