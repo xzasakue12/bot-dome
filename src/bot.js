@@ -20,8 +20,13 @@ const client = new Client({
 });
 
 if (process.env.YOUTUBE_COOKIE) {
-    playdl.setToken({ youtube: { cookie: process.env.YOUTUBE_COOKIE } });
-    console.log('✅ YouTube cookie loaded');
+    const cookie = process.env.YOUTUBE_COOKIE;
+    if (cookie && cookie.includes(';')) {
+        playdl.setToken({ youtube: { cookie: cookie } });
+        console.log('✅ YouTube cookie loaded');
+    } else {
+        console.error('❌ Invalid YouTube cookie format. Ensure it contains key-value pairs separated by semicolons.');
+    }
 } else if (process.env.YOUTUBE_API_KEY) {
     playdl.setToken({ youtube: { apiKey: process.env.YOUTUBE_API_KEY } });
     console.log('✅ YouTube API Key loaded');
