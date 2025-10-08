@@ -4,7 +4,6 @@
   "main": "src/bot.js",
   "description": "Full-featured Discord Music Bot with queue management, volume control, and auto-play",
   "scripts": {
-    "build": "curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-64bit-static.tar.xz | tar -xJ && mv ffmpeg-*-static/ffmpeg ffmpeg-*-static/ffprobe /usr/local/bin/ && npm install",
     "start": "npm install && node src/bot.js",
     "dev": "node src/bot.js",
     "pm2": "pm2 start src/bot.js --name my-discord-music-bot",
@@ -29,7 +28,6 @@
     "@discordjs/voice": "^0.18.0",
     "discord.js": "^14.21.0",
     "dotenv": "^17.0.0",
-    "play-dl": "^1.9.7",
     "ytdl-core": "^4.11.5"
   }
 }
