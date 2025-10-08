@@ -44,5 +44,10 @@ module.exports = {
         leaveTimeout: 60000, // 60 วินาที
         autoplayDelay: 3000, // 3 วินาที
         voiceChannelCheckDelay: 2000 // 2 วินาที
+    },
+
+    // Audio settings
+    audioSettings: {
+        bassGain: 10 // Default bass gain in dB
     }
 };

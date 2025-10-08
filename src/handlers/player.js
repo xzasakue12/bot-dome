@@ -161,9 +161,11 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 }
             });
 
+            const bassGain = config.audioSettings?.bassGain || 10; // Default to 10 dB if undefined
+
             const ffmpegArgs = [
                 '-i', 'pipe:0', // Input from yt-dlp
-                '-af', `bass=g=${config.audioSettings.bassGain}`, // Dynamically set bass gain
+                '-af', `bass=g=${bassGain}`, // Dynamically set bass gain
                 '-f', 'opus', // Output format
                 'pipe:1' // Output to stdout
             ];
