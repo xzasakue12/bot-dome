@@ -66,35 +66,14 @@ function checkAndLeaveIfEmpty(voiceChannel) {
 async function playWithYtDlp(cleanUrl, message, connection) {
     return new Promise((resolve, reject) => {
         try {
-            const ytDlpPath = getYtDlpPath();
-
-            // Reduce excessive logging to minimize memory usage
-            console.log('🎵 Starting yt-dlp stream for:', cleanUrl);
-            console.log('🔧 yt-dlp command:', ytDlpPath, ytdlpArgs.slice(0, 3).join(' '), '...'); // Show fewer arguments
-
-            // สร้าง arguments สำหรับ yt-dlp
+            // Ensure ytdlpArgs is declared and initialized before use
             const ytdlpArgs = [];
 
-            // ลองหา cookies.txt จากหลาย path
-            const cookiesPaths = [
-                path.join(__dirname, '../../youtube_cookies.txt'),
-                path.join(__dirname, '../../cookies.txt'),
-                path.join('/etc/secrets/youtube_cookies.txt'),
-                path.join('/etc/secrets/cookies.txt'),
-                path.join(__dirname, '../youtube_cookies.txt'),
-                path.join(__dirname, '../cookies.txt'),
-                config.cookiesPath
-            ];
+            const ytDlpPath = getYtDlpPath();
 
-            let cookiesPath = null;
-            for (const p of cookiesPaths) {
-                if (p && fs.existsSync(p)) {
-                    cookiesPath = p;
-                    break;
-                }
-            }
+            console.log('🎵 Starting yt-dlp stream for:', cleanUrl);
 
-            // เพิ่ม cookies ถ้าเจอไฟล์
+            // Add cookies and other arguments to ytdlpArgs
             if (cookiesPath) {
                 console.log('🍪 Using cookies for authentication:', cookiesPath);
                 ytdlpArgs.push('--cookies', cookiesPath);
@@ -102,22 +81,13 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 console.warn('⚠️ No cookies.txt found - YouTube may block requests');
             }
 
-            // เพิ่ม user agent และ headers
             ytdlpArgs.push(
                 '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 '--add-header', 'Accept-Language:en-US,en;q=0.9',
                 '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                '--add-header', 'Sec-Fetch-Mode:navigate'
-            );
-
-            // เพิ่ม buffer-size และ retries
-            ytdlpArgs.push(
+                '--add-header', 'Sec-Fetch-Mode:navigate',
                 '--buffer-size', '32K',
-                '--retries', '5'
-            );
-
-            // เพิ่ม format และ options
-            ytdlpArgs.push(
+                '--retries', '5',
                 '-f', 'bestaudio/best',
                 '--no-playlist',
                 '--no-warnings',
@@ -127,6 +97,8 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 '-o', '-',
                 cleanUrl
             );
+
+            console.log('🔧 yt-dlp command:', ytDlpPath, ytdlpArgs.slice(0, 3).join(' '), '...');
 
             const ytdlpProcess = spawn(ytDlpPath, ytdlpArgs, {
                 shell: false,
