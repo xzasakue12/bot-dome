@@ -1,16 +1,16 @@
 const dotenv = require('dotenv');
-dotenv.config({ path: '/etc/secrets/.env' }); // สำหรับ Render
-dotenv.config(); // สำหรับเครื่องเรา
-
+const fs = require('fs');
 const { Client, GatewayIntentBits } = require('discord.js');
 const playdl = require('play-dl');
 const config = require('./config');
 const { setClient } = require('./handlers/player');
 const { handleVoiceStateUpdate } = require('./handlers/voiceState');
 const { loadCommands, handleCommand } = require('./handlers/commandHandler');
-const { exec } = require('child_process');
-const fs = require('fs');
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
+
+// โหลด .env
+dotenv.config({ path: '/etc/secrets/.env' }); // สำหรับ Render
+dotenv.config(); // สำหรับเครื่อง local
 
 // สร้าง Discord client
 const client = new Client({
@@ -22,19 +22,21 @@ const client = new Client({
     ]
 });
 
-// if (process.env.YOUTUBE_COOKIE) {
-//     const cookie = process.env.YOUTUBE_COOKIE;
-//     console.log('🔍 Debug: YOUTUBE_COOKIE =', cookie);
-//     if (cookie && cookie.includes(';')) {
-//         playdl.setToken({ youtube: { cookie: cookie } });
-//         console.log('✅ YouTube cookie loaded');
-//     } else {
-//         console.error('❌ Invalid YouTube cookie format. Ensure it contains key-value pairs separated by semicolons.');
-//     }
-// } else if (process.env.YOUTUBE_API_KEY) {
-//     playdl.setToken({ youtube: { apiKey: process.env.YOUTUBE_API_KEY } });
-//     console.log('✅ YouTube API Key loaded');
-// }
+// ตั้งค่า play-dl: ใช้ cookies.txt บนเครื่อง local, API Key บน Render
+if (fs.existsSync('cookies.txt')) {
+    const cookie = fs.readFileSync('cookies.txt', 'utf8');
+    if (cookie && cookie.includes(';')) {
+        playdl.setToken({ youtube: { cookie } });
+        console.log('✅ YouTube cookie loaded (local)');
+    } else {
+        console.error('❌ Invalid cookies.txt format');
+    }
+} else if (process.env.YOUTUBE_API_KEY) {
+    playdl.setToken({ youtube: { apiKey: process.env.YOUTUBE_API_KEY } });
+    console.log('✅ YouTube API Key loaded (Render)');
+} else {
+    console.warn('⚠️ No YouTube credentials found. Play commands will fail.');
+}
 
 // โหลดคำสั่งทั้งหมด
 const commands = loadCommands();
@@ -43,63 +45,48 @@ console.log(`📋 Loaded ${commands.size} commands`);
 // ส่ง client ให้ player handler
 setClient(client);
 
-// ฟังก์ชันสำหรับใช้ yt-dlp ดึงข้อมูลเสียงจาก YouTube
-async function playWithYtDlp(url, message) {
-    console.log(`🎵 Attempting to play: ${url}`);
-
-    // Check if the user is in a voice channel
+// ฟังก์ชันเล่นเพลงด้วย play-dl
+async function playMusic(url, message) {
     const voiceChannel = message.member?.voice?.channel;
     if (!voiceChannel) {
         message.reply('❌ คุณต้องอยู่ในห้องเสียงเพื่อใช้คำสั่งนี้');
         return;
     }
 
-    // Join the voice channel
     const connection = joinVoiceChannel({
         channelId: voiceChannel.id,
         guildId: voiceChannel.guild.id,
         adapterCreator: voiceChannel.guild.voiceAdapterCreator,
     });
 
-    // Play the audio using yt-dlp
-    exec(`./yt-dlp -f bestaudio --cookies /etc/secrets/cookies.txt -o - ${url}`, (error, stdout, stderr) => {
-        if (error) {
-            console.error(`❌ yt-dlp Error: ${error.message}`);
-            message.reply('❌ เกิดข้อผิดพลาดในการดึงข้อมูลเสียง');
-            return;
-        }
-        if (stderr) {
-            console.error(`⚠️ yt-dlp Stderr: ${stderr}`);
-        }
-        console.log(`✅ yt-dlp Output: ${stdout}`);
-        
-        try {
-            const player = createAudioPlayer();
-            const resource = createAudioResource(stdout.trim()); // ใช้ stdout จาก yt-dlp
+    try {
+        const stream = await playdl.stream(url);
+        const resource = createAudioResource(stream.stream, { inputType: stream.type });
 
-            player.play(resource);
-            connection.subscribe(player);
+        const player = createAudioPlayer();
+        player.play(resource);
+        connection.subscribe(player);
 
-            player.on(AudioPlayerStatus.Playing, () => {
-                console.log('🎶 กำลังเล่นเพลง');
-                message.reply('🎶 กำลังเล่นเพลงในห้องเสียง');
-            });
+        player.on(AudioPlayerStatus.Playing, () => {
+            console.log('🎶 กำลังเล่นเพลง');
+            message.reply('🎶 กำลังเล่นเพลงในห้องเสียง');
+        });
 
-            player.on(AudioPlayerStatus.Idle, () => {
-                console.log('🎵 เพลงจบแล้ว');
-                connection.destroy();
-            });
+        player.on(AudioPlayerStatus.Idle, () => {
+            console.log('🎵 เพลงจบแล้ว');
+            connection.destroy();
+        });
 
-            player.on('error', (err) => {
-                console.error('❌ Audio Player Error:', err);
-                message.reply('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
-                connection.destroy();
-            });
-        } catch (err) {
-            console.error('❌ Error creating audio resource:', err);
-            message.reply('❌ เกิดข้อผิดพลาดในการสร้างทรัพยากรเสียง');
-        }
-    });
+        player.on('error', (err) => {
+            console.error('❌ Audio Player Error:', err);
+            message.reply('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
+            connection.destroy();
+        });
+
+    } catch (err) {
+        console.error('❌ play-dl error:', err);
+        message.reply('❌ เกิดข้อผิดพลาดในการดึงเพลง');
+    }
 }
 
 // Event: เมื่อบอทพร้อม
@@ -109,23 +96,23 @@ client.once('ready', () => {
     client.user.setActivity('!help | Music Bot', { type: 2 });
 });
 
-// Event: เมื่อได้รับข้อความ
+// Event: รับข้อความ
 client.on('messageCreate', async (message) => {
-    console.log(`📩 Received message: ${message.content}`); // Log ข้อความที่ได้รับ
+    if (message.author.bot) return;
+
     if (message.content.startsWith('!play')) {
-        const url = message.content.split(' ')[1]; // ดึง URL จากข้อความ
-        console.log(`🎵 Attempting to play URL: ${url}`); // Log URL ที่พยายามเล่น
+        const url = message.content.split(' ')[1];
         if (!url) {
             message.reply('❌ โปรดระบุ URL ของ YouTube');
             return;
         }
-        await playWithYtDlp(url, message);
+        await playMusic(url, message);
     } else {
         await handleCommand(message, config.settings.prefix, commands);
     }
 });
 
-// Event: เมื่อมีการเปลี่ยนแปลง voice state
+// Event: voice state update
 client.on('voiceStateUpdate', (oldState, newState) => {
     handleVoiceStateUpdate(oldState, newState);
 });
@@ -134,13 +121,14 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 client.on('error', (error) => console.error('Discord client error:', error));
 client.on('rateLimit', (info) => console.warn('Rate limited:', info));
 
+// Login
 client.login(process.env.TOKEN || process.env.DISCORD_BOT_TOKEN)
     .catch((error) => {
         console.error('Failed to login:', error);
         process.exit(1);
     });
 
-// ปิดบอทอย่างปลอดภัย
+// Shutdown gracefully
 process.on('SIGINT', () => {
     console.log('\n🛑 Shutting down gracefully...');
     if (config.state.currentConnection) config.state.currentConnection.destroy();
@@ -150,9 +138,3 @@ process.on('SIGINT', () => {
 
 process.on('unhandledRejection', (error) => console.error('Unhandled promise rejection:', error));
 process.on('uncaughtException', (error) => console.error('Uncaught exception:', error));
-
-if (!fs.existsSync('cookies.txt')) {
-    console.error('❌ cookies.txt not found. Please upload the file.');
-} else {
-    console.log('✅ cookies.txt found and ready to use.');
-}
