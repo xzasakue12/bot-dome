@@ -19,13 +19,22 @@ const client = new Client({
     ]
 });
 
-// ตั้งค่า play-dl cookie
-if (process.env.YOUTUBE_COOKIE) {
+// ตั้งค่า YouTube API Key สำหรับ play-dl
+if (process.env.YOUTUBE_API_KEY) {
     playdl.setToken({
-        youtube: { cookie: process.env.YOUTUBE_COOKIE }
+        youtube: { apiKey: process.env.YOUTUBE_API_KEY }
     });
-    console.log('✅ YouTube cookie loaded');
+    console.log('✅ YouTube API Key loaded');
 }
+
+
+// ตั้งค่า play-dl cookie
+// if (process.env.YOUTUBE_COOKIE) {
+//     playdl.setToken({
+//         youtube: { cookie: process.env.YOUTUBE_COOKIE }
+//     });
+//     console.log('✅ YouTube cookie loaded');
+// }
 
 // โหลดคำสั่งทั้งหมด
 const commands = loadCommands();
