@@ -331,6 +331,19 @@ async function playNext(guildId, lastVideoId = null) {
             playNext(guildId, videoId);
         });
 
+        connection.on('error', (error) => {
+            console.error('❌ Voice connection error:', error);
+        });
+
+        connection.on('stateChange', (oldState, newState) => {
+            console.log(`🔄 Voice connection state changed: ${oldState.status} -> ${newState.status}`);
+        });
+
+        if (!connection || connection.state.status !== 'ready') {
+            console.error('❌ Voice connection is not ready. Skipping to the next song.');
+            return playNext(guildId, lastVideoId);
+        }
+
         return;
     }
 
