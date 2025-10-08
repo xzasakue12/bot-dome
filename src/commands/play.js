@@ -1,6 +1,29 @@
-const playdl = require('play-dl');
+const ytdl = require('ytdl-core');
 const config = require('../config');
 const { getVideoInfo } = require('../utils/youtube');
+
+/**
+ * ดึง Video ID จาก YouTube URL
+ */
+function extractVideoId(url) {
+    try {
+        const urlObj = new URL(url);
+        
+        // youtube.com/watch?v=xxxxx
+        if (urlObj.hostname.includes('youtube.com')) {
+            return urlObj.searchParams.get('v');
+        }
+        
+        // youtu.be/xxxxx
+        if (urlObj.hostname.includes('youtu.be')) {
+            return urlObj.pathname.slice(1);
+        }
+        
+        return null;
+    } catch (e) {
+        return null;
+    }
+}
 
 module.exports = {
     name: 'play',
@@ -17,30 +40,30 @@ module.exports = {
         let videoId;
         let cleanUrl;
         try {
-            videoId = playdl.extractID(url);
+            videoId = extractVideoId(url);
+            if (!videoId) {
+                return message.reply('ไม่สามารถอ่านลิงก์ YouTube นี้ได้ กรุณาตรวจสอบอีกครั้ง');
+            }
             cleanUrl = `https://www.youtube.com/watch?v=${videoId}`;
         } catch (e) {
             console.log('Error extracting videoId:', e);
             return message.reply('ไม่สามารถอ่านลิงก์ YouTube นี้ได้ กรุณาตรวจสอบอีกครั้ง');
         }
 
-        if (!videoId) {
-            return message.reply('ไม่สามารถอ่านลิงก์ YouTube นี้ได้ กรุณาตรวจสอบอีกครั้ง');
-        }
-
-        const validateResult = playdl.yt_validate(cleanUrl);
-        if (validateResult !== 'video') {
+        // ตรวจสอบด้วย ytdl-core
+        if (!ytdl.validateURL(cleanUrl)) {
             return message.reply('กรุณาใส่ลิงก์ YouTube ที่ถูกต้อง (ต้องเป็นลิงก์วิดีโอเท่านั้น)');
         }
 
+        // ตรวจสอบว่าสามารถดึงข้อมูลวิดีโอได้หรือไม่
         let info;
         try {
-            info = await playdl.video_basic_info(cleanUrl);
-            if (!info || !info.video_details || !info.video_details.id) {
+            info = await ytdl.getBasicInfo(cleanUrl);
+            if (!info || !info.videoDetails || !info.videoDetails.videoId) {
                 return message.reply('ไม่สามารถอ่านลิงก์ YouTube นี้ได้ กรุณาตรวจสอบอีกครั้ง');
             }
         } catch (e) {
-            console.log('video_basic_info error:', e);
+            console.log('getBasicInfo error:', e);
             return message.reply('ไม่สามารถอ่านลิงก์ YouTube นี้ได้ กรุณาตรวจสอบอีกครั้ง');
         }
 
@@ -55,12 +78,18 @@ module.exports = {
         // ดึงข้อมูลเพลง
         let songTitle = cleanUrl;
         try {
-            const videoInfo = await playdl.video_info(cleanUrl);
-            if (videoInfo && videoInfo.video_details) {
-                songTitle = videoInfo.video_details.title;
+            const videoInfo = await getVideoInfo(cleanUrl);
+            if (videoInfo && videoInfo.title) {
+                songTitle = videoInfo.title;
+            } else if (info && info.videoDetails && info.videoDetails.title) {
+                songTitle = info.videoDetails.title;
             }
         } catch (e) {
             console.log('Cannot get video title:', e);
+            // ใช้ชื่อจาก basic info ที่ได้มาแล้ว
+            if (info && info.videoDetails && info.videoDetails.title) {
+                songTitle = info.videoDetails.title;
+            }
         }
 
         config.queue.push({ 
