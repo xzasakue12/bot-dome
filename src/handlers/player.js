@@ -1,5 +1,5 @@
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
-const ytdl = require('ytdl-core');
+const ytdl = require('@distube/ytdl-core');
 const { spawn } = require('child_process');
 const config = require('../config');
 const { getYtDlpPath, checkVoiceChannelEmpty } = require('../utils/helpers');
