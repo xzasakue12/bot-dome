@@ -236,6 +236,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
         let ytdlpProcess;
         let ffmpegProcess;
         let isResolved = false;
+        let hasReceivedData = false;
 
         try {
             const ytdlpArgs = [];
@@ -330,6 +331,14 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 stdio: ['pipe', 'pipe', 'pipe']
             });
 
+            // Track if we're receiving audio data
+            ffmpegProcess.stdout.on('data', (chunk) => {
+                if (!hasReceivedData && chunk.length > 0) {
+                    hasReceivedData = true;
+                    console.log('✅ Audio stream started, receiving data...');
+                }
+            });
+
             // Handle pipe errors
             ytdlpProcess.stdout.on('error', (err) => {
                 if (err.code === 'EPIPE') {
@@ -382,15 +391,23 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 resource.volume.setVolume(0.5);
             }
 
+            // Store processes and stream state
             resource.metadata = {
                 ytdlpProcess,
                 ffmpegProcess,
+                hasReceivedData: () => hasReceivedData,
                 cleanup: () => cleanupProcesses(ytdlpProcess, ffmpegProcess)
             };
 
             console.log('✅ yt-dlp stream created successfully');
-            isResolved = true;
-            resolve(resource);
+            
+            // Wait a bit to ensure stream is actually ready
+            setTimeout(() => {
+                if (!isResolved) {
+                    isResolved = true;
+                    resolve(resource);
+                }
+            }, 500);
 
         } catch (error) {
             if (!isResolved) {
@@ -548,9 +565,39 @@ async function playNext(guildId, lastVideoId = null) {
                 player.removeAllListeners();
             }
             
-            player.play(resource);
+            // Wait for stream to have data before playing
+            const streamReadyTimeout = setTimeout(() => {
+                if (!resource.metadata.hasReceivedData()) {
+                    console.warn('⚠️ Stream not ready after 3s, playing anyway...');
+                }
+            }, 3000);
+            
+            // Check if stream has data
+            const checkStreamReady = setInterval(() => {
+                if (resource.metadata.hasReceivedData()) {
+                    clearInterval(checkStreamReady);
+                    clearTimeout(streamReadyTimeout);
+                    console.log('✅ Stream ready, starting playback');
+                    player.play(resource);
+                }
+            }, 100);
+            
+            // Fallback: play after 3 seconds anyway
+            setTimeout(() => {
+                clearInterval(checkStreamReady);
+                if (!resource.metadata.hasReceivedData()) {
+                    console.log('⏳ Playing without stream confirmation...');
+                }
+                player.play(resource);
+            }, 3000);
+
+            // Track if song actually started playing
+            let hasStartedPlaying = false;
+            let playStartTime = null;
 
             player.once(AudioPlayerStatus.Playing, () => {
+                hasStartedPlaying = true;
+                playStartTime = Date.now();
                 console.log('🎶 Now playing:', title || cleanUrl);
                 if (message && message.channel) {
                     message.channel.send(`🎶 กำลังเล่น: **${title || cleanUrl}**`)
@@ -559,7 +606,32 @@ async function playNext(guildId, lastVideoId = null) {
             });
 
             player.on(AudioPlayerStatus.Idle, () => {
-                console.log('⏹️ Player idle, checking next action...');
+                const playDuration = playStartTime ? Date.now() - playStartTime : 0;
+                console.log(`⏹️ Player idle after ${playDuration}ms, checking next action...`);
+                
+                // ถ้าเล่นไม่ถึง 5 วินาที แสดงว่าเกิด error หรือยังไม่ได้เล่นจริง
+                if (!hasStartedPlaying || playDuration < 5000) {
+                    console.warn('⚠️ Song stopped too quickly - possible stream issue');
+                    
+                    // Cleanup และลองเล่นเพลงถัดไป
+                    if (resource.metadata && resource.metadata.cleanup) {
+                        try {
+                            resource.metadata.cleanup();
+                        } catch (e) {
+                            console.error('Cleanup error:', e);
+                        }
+                    }
+                    
+                    // ถ้ายังไม่เคยเล่นเลย ให้ retry เพลงเดิม
+                    if (!hasStartedPlaying) {
+                        console.log('🔄 Retrying current song...');
+                        config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
+                    }
+                    
+                    processingGuilds.delete(guildId);
+                    setTimeout(() => playNext(guildId, videoId), 2000);
+                    return;
+                }
 
                 if (config.state.currentSong) {
                     console.log(`✅ Finished playing: ${config.state.currentSong.title || config.state.currentSong.cleanUrl}`);
