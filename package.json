@@ -4,7 +4,7 @@
   "main": "src/bot.js",
   "description": "Full-featured Discord Music Bot with queue management, volume control, and auto-play",
   "scripts": {
-    "start": "npm install && node src/bot.js",
+    "start": "node src/bot.js",
     "dev": "node src/bot.js",
     "pm2": "pm2 start src/bot.js --name my-discord-music-bot",
     "pm2:stop": "pm2 stop my-discord-music-bot",
@@ -23,14 +23,10 @@
   ],
   "author": "xzasakue12",
   "license": "ISC",
-
   "dependencies": {
     "@discordjs/opus": "^0.10.0",
     "@discordjs/voice": "^0.18.0",
     "discord.js": "^14.21.0",
-    "dotenv": "^17.0.0",
-    "ytdl-core": "^4.11.5",
-    "@distube/ytdl-core": "^4.14.4"
+    "dotenv": "^17.0.0"
   }
-
 }

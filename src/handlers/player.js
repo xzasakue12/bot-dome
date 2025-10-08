@@ -1,11 +1,10 @@
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
-const ytdl = require('@distube/ytdl-core');
 const { spawn } = require('child_process');
 const config = require('../config');
 const { getYtDlpPath, checkVoiceChannelEmpty } = require('../utils/helpers');
 const { getRandomYouTubeVideo } = require('../utils/youtube');
 
-let client; // จะถูกตั้งค่าจาก index.js
+let client;
 
 function setClient(discordClient) {
     client = discordClient;
@@ -17,17 +16,12 @@ function setClient(discordClient) {
 function extractVideoId(url) {
     try {
         const urlObj = new URL(url);
-        
-        // youtube.com/watch?v=xxxxx
         if (urlObj.hostname.includes('youtube.com')) {
             return urlObj.searchParams.get('v');
         }
-        
-        // youtu.be/xxxxx
         if (urlObj.hostname.includes('youtu.be')) {
             return urlObj.pathname.slice(1);
         }
-        
         return null;
     } catch (e) {
         console.error('Error extracting video ID:', e);
@@ -51,12 +45,10 @@ function checkAndLeaveIfEmpty(voiceChannel) {
             config.state.currentPlayer = null;
         }
         
-        // ล้างคิว
         config.queue.length = 0;
         config.state.isPlaying = false;
         config.state.lastPlayedVideoId = null;
         
-        // ส่งข้อความแจ้งเตือน
         if (config.state.lastTextChannel) {
             config.state.lastTextChannel.send('👋 ไม่มีคนในห้องเสียงแล้ว บอทออกจากห้องแล้วนะ')
                 .catch(e => console.error('Send message error:', e));
@@ -64,6 +56,68 @@ function checkAndLeaveIfEmpty(voiceChannel) {
         return true;
     }
     return false;
+}
+
+/**
+ * เล่นเพลงด้วย yt-dlp
+ */
+async function playWithYtDlp(cleanUrl, message, connection) {
+    return new Promise((resolve, reject) => {
+        try {
+            const ytDlpPath = getYtDlpPath();
+            
+            console.log('🎵 Starting yt-dlp stream for:', cleanUrl);
+            
+            const ytdlpProcess = spawn(ytDlpPath, [
+                '-f', 'bestaudio/best',
+                '--no-playlist',
+                '--no-warnings',
+                '--ignore-errors',
+                '--extract-audio',
+                '--audio-format', 'opus',
+                '-o', '-',
+                cleanUrl
+            ], { 
+                shell: false,
+                windowsHide: true,
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stderrOutput = '';
+            
+            ytdlpProcess.stderr.on('data', (data) => {
+                stderrOutput += data.toString();
+            });
+
+            ytdlpProcess.on('error', (err) => {
+                console.error('❌ yt-dlp process error:', err);
+                reject(err);
+            });
+
+            ytdlpProcess.on('close', (code) => {
+                if (code !== 0 && code !== null) {
+                    console.error('❌ yt-dlp exit code:', code);
+                    console.error('stderr:', stderrOutput);
+                }
+            });
+
+            const resource = createAudioResource(ytdlpProcess.stdout, {
+                inputType: StreamType.Arbitrary,
+                inlineVolume: true
+            });
+
+            if (resource.volume) {
+                resource.volume.setVolume(0.5);
+            }
+
+            console.log('✅ yt-dlp stream created successfully');
+            resolve(resource);
+
+        } catch (error) {
+            console.error('❌ yt-dlp error:', error);
+            reject(error);
+        }
+    });
 }
 
 /**
@@ -84,10 +138,8 @@ async function playNext(guildId, lastVideoId = null) {
         const { cleanUrl, voiceChannel, message, textChannel, title } = config.queue.shift();
         console.log('🎵 Playing from queue:', cleanUrl);
         
-        // เก็บข้อมูลเพลงปัจจุบัน
         config.state.currentSong = { cleanUrl, title: title || cleanUrl, voiceChannel };
         
-        // อัปเดตช่องข้อความล่าสุด
         if (textChannel) {
             config.state.lastTextChannel = textChannel;
         }
@@ -108,73 +160,15 @@ async function playNext(guildId, lastVideoId = null) {
         config.state.currentConnection = connection;
         
         let resource;
-        let stream;
         
         try {
-            console.log('Attempting yt-dlp stream...');
-            const ytDlpPath = getYtDlpPath();
-            const ytdlpProcess = spawn(ytDlpPath, [
-                '-f', 'bestaudio',
-                '--no-playlist',
-                '-o', '-',
-                '--quiet',
-                '--no-warnings',
-                '--ignore-errors',
-                cleanUrl
-            ], { 
-                shell: false, 
-                windowsHide: true,
-                stdio: ['ignore', 'pipe', 'ignore']
-            });
-
-            ytdlpProcess.on('error', (err) => {
-                console.error('yt-dlp process error:', err);
-            });
-
-            resource = createAudioResource(ytdlpProcess.stdout, {
-                inputType: StreamType.Arbitrary,
-                inlineVolume: true
-            });
-            
-            console.log('✅ yt-dlp stream started');
-            message.reply(`🎵 กำลังเล่น: ${title || cleanUrl}`);
-        } catch (ytdlpError) {
-            console.error('yt-dlp error:', ytdlpError.message);
-            
-            try {
-                console.log('Attempting ytdl-core stream...');
-                
-                // ตรวจสอบว่าเป็น YouTube URL ถูกต้องหรือไม่
-                if (!ytdl.validateURL(cleanUrl)) {
-                    throw new Error('Invalid YouTube URL');
-                }
-                
-                stream = ytdl(cleanUrl, {
-                    filter: 'audioonly',
-                    quality: 'highestaudio',
-                    highWaterMark: 1 << 25,
-                    dlChunkSize: 0
-                });
-                
-                resource = createAudioResource(stream, { 
-                    inputType: StreamType.Arbitrary,
-                    inlineVolume: true 
-                });
-                
-                console.log('✅ ytdl-core stream success');
-                message.reply(`🎵 กำลังเล่น: ${title || cleanUrl}`);
-                
-                // จัดการ error ของ stream
-                stream.on('error', (err) => {
-                    console.error('ytdl-core stream error:', err);
-                });
-                
-            } catch (error) {
-                console.error('ytdl-core error:', error.message);
-                message.reply('❌ ไม่สามารถเล่นเพลงนี้ได้');
-                config.state.isPlaying = false;
-                return playNext(guildId, lastVideoId);
-            }
+            message.reply(`🎵 กำลังโหลด: **${title || cleanUrl}**`);
+            resource = await playWithYtDlp(cleanUrl, message, connection);
+        } catch (error) {
+            console.error('❌ Failed to play:', error);
+            message.reply('❌ ไม่สามารถเล่นเพลงนี้ได้');
+            config.state.isPlaying = false;
+            return playNext(guildId, lastVideoId);
         }
 
         if (!resource) {
@@ -188,29 +182,30 @@ async function playNext(guildId, lastVideoId = null) {
         config.state.currentPlayer = player;
         connection.subscribe(player);
         
-        console.log('Playing resource...');
         player.play(resource);
+
+        player.on(AudioPlayerStatus.Playing, () => {
+            console.log('🎶 Now playing:', title || cleanUrl);
+            message.channel.send(`🎶 กำลังเล่น: **${title || cleanUrl}**`)
+                .catch(e => console.error('Send error:', e));
+        });
 
         player.on(AudioPlayerStatus.Idle, () => {
             console.log('⏹️ Player idle, playing next...');
             
-            // ตรวจสอบว่ายังมีคนในห้องเสียงหรือไม่
             if (voiceChannel && checkAndLeaveIfEmpty(voiceChannel)) {
                 return;
             }
             
-            // ตรวจสอบ loop mode
             if (config.loop.mode === 'song' && config.state.currentSong) {
-                // เล่นเพลงเดิมซ้ำ
                 config.queue.unshift({ 
                     cleanUrl: config.state.currentSong.cleanUrl, 
                     voiceChannel: config.state.currentSong.voiceChannel, 
-                    message: { reply: (msg) => {} },
+                    message: { reply: (msg) => {}, channel: message.channel },
                     textChannel: config.state.lastTextChannel,
                     title: config.state.currentSong.title 
                 });
             } else if (config.loop.mode === 'queue' && config.queue.length === 0 && config.loop.originalQueue.length > 0) {
-                // เมื่อคิวหมด ให้โหลดคิวเดิมกลับมา
                 config.loop.originalQueue.forEach(song => config.queue.push({...song}));
             }
             
@@ -219,21 +214,21 @@ async function playNext(guildId, lastVideoId = null) {
 
         player.on('error', error => {
             console.error('❌ Audio player error:', error);
-            message.reply('❌ เกิดข้อผิดพลาดในการเล่นเพลง');
+            message.channel.send('❌ เกิดข้อผิดพลาดในการเล่นเพลง')
+                .catch(e => console.error('Send error:', e));
             playNext(guildId, videoId);
         });
 
         return;
     }
 
-    // --- Autoplay: สุ่มจาก YouTube ---
+    // Autoplay
     if (config.queue.length === 0 && lastVideoId && config.settings.autoplayEnabled) {
-        console.log('🔄 Starting autoplay search...');
+        console.log('🔄 Starting autoplay...');
         global.nextTimeout = setTimeout(async () => {
             if (config.queue.length === 0) {
                 const nextUrl = await getRandomYouTubeVideo();
 
-                // หา voice channel
                 let voiceChannel;
                 const guild = client.guilds.cache.get(guildId);
                 if (guild) {
@@ -244,7 +239,7 @@ async function playNext(guildId, lastVideoId = null) {
                 }
 
                 if (nextUrl && voiceChannel) {
-                    console.log('✅ Adding autoplay song to queue:', nextUrl);
+                    console.log('✅ Adding autoplay song:', nextUrl);
                     config.queue.push({ 
                         cleanUrl: nextUrl, 
                         voiceChannel,
@@ -253,17 +248,10 @@ async function playNext(guildId, lastVideoId = null) {
                             reply: (msg) => {
                                 if (config.state.lastTextChannel) {
                                     config.state.lastTextChannel.send(`🎲 Autoplay: ${msg}`)
-                                        .catch(e => console.error('Send message error:', e));
-                                } else {
-                                    const textChannel = guild.channels.cache.find(
-                                        ch => ch.type === 0 && ch.permissionsFor(guild.members.me).has('SendMessages')
-                                    );
-                                    if (textChannel) {
-                                        textChannel.send(`🎲 Autoplay: ${msg}`)
-                                            .catch(e => console.error('Send message error:', e));
-                                    }
+                                        .catch(e => console.error('Send error:', e));
                                 }
-                            }
+                            },
+                            channel: config.state.lastTextChannel
                         } 
                     });
                     
@@ -274,8 +262,6 @@ async function playNext(guildId, lastVideoId = null) {
                     }
                     
                     return playNext(guildId, config.state.lastPlayedVideoId);
-                } else {
-                    console.log('❌ No next URL or voice channel found');
                 }
             }
         }, config.settings.autoplayDelay);

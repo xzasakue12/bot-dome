@@ -1,53 +1,15 @@
-const ytdl = require('@distube/ytdl-core');
+const { spawn } = require('child_process');
 const config = require('../config');
+const { getYtDlpPath } = require('./helpers');
 
 /**
- * ค้นหาวิดีโอจาก YouTube โดยใช้ YouTube API
- */
-async function searchYouTubeAPI(query, limit = 5) {
-    try {
-        const apiKey = process.env.YOUTUBE_API_KEY;
-        if (!apiKey) {
-            console.error('❌ YOUTUBE_API_KEY not found in environment variables');
-            return [];
-        }
-
-        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=${limit}&q=${encodeURIComponent(query)}&type=video&key=${apiKey}`;
-        
-        const response = await fetch(searchUrl);
-        const data = await response.json();
-        
-        if (data.error) {
-            console.error('YouTube API Error:', data.error.message);
-            return [];
-        }
-        
-        if (data.items && data.items.length > 0) {
-            return data.items.map(item => ({
-                title: item.snippet.title,
-                url: `https://www.youtube.com/watch?v=${item.videoId}`,
-                videoId: item.videoId,
-                thumbnail: item.snippet.thumbnails.default.url,
-                channelTitle: item.snippet.channelTitle
-            }));
-        }
-    } catch (error) {
-        console.error('YouTube API search error:', error);
-    }
-    return [];
-}
-
-/**
- * ค้นหาวิดีโอจาก YouTube โดยใช้ yt-dlp (fallback)
+ * ค้นหาวิดีโอด้วย yt-dlp
  */
 async function searchYouTubeYtDlp(query, limit = 5) {
-    try {
-        const { spawn } = require('child_process');
-        const { getYtDlpPath } = require('./helpers');
-        
-        const ytDlpPath = getYtDlpPath();
-        
-        return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
+        try {
+            const ytDlpPath = getYtDlpPath();
+            
             const ytdlpProcess = spawn(ytDlpPath, [
                 `ytsearch${limit}:${query}`,
                 '--get-id',
@@ -62,7 +24,7 @@ async function searchYouTubeYtDlp(query, limit = 5) {
             });
 
             ytdlpProcess.on('close', (code) => {
-                if (code === 0) {
+                if (code === 0 && output.trim()) {
                     const lines = output.trim().split('\n');
                     const results = [];
                     
@@ -86,11 +48,11 @@ async function searchYouTubeYtDlp(query, limit = 5) {
                 console.error('yt-dlp search error:', err);
                 resolve([]);
             });
-        });
-    } catch (error) {
-        console.error('yt-dlp search error:', error);
-        return [];
-    }
+        } catch (error) {
+            console.error('yt-dlp search error:', error);
+            resolve([]);
+        }
+    });
 }
 
 /**
@@ -104,14 +66,7 @@ async function getRandomYouTubeVideo() {
         
         console.log(`🔍 Searching YouTube for: ${randomQuery}`);
         
-        // ลองใช้ YouTube API ก่อน
-        let searchResult = await searchYouTubeAPI(randomQuery, 20);
-        
-        // ถ้าไม่ได้ ลอง yt-dlp
-        if (searchResult.length === 0) {
-            console.log('Trying yt-dlp search...');
-            searchResult = await searchYouTubeYtDlp(randomQuery, 20);
-        }
+        const searchResult = await searchYouTubeYtDlp(randomQuery, 20);
         
         if (searchResult && searchResult.length > 0) {
             const randomIndex = Math.floor(Math.random() * searchResult.length);
@@ -129,49 +84,53 @@ async function getRandomYouTubeVideo() {
  * ค้นหาเพลงจาก YouTube
  */
 async function searchYouTube(query, limit = 5) {
-    try {
-        // ลองใช้ YouTube API ก่อน
-        let results = await searchYouTubeAPI(query, limit);
-        
-        // ถ้าไม่ได้ ลอง yt-dlp
-        if (results.length === 0) {
-            console.log('Trying yt-dlp search...');
-            results = await searchYouTubeYtDlp(query, limit);
-        }
-        
-        return results;
-    } catch (error) {
-        console.error('Search error:', error);
-        return [];
-    }
+    return await searchYouTubeYtDlp(query, limit);
 }
 
 /**
- * ดึงข้อมูลวิดีโอจาก ytdl-core
+ * ดึงข้อมูลวิดีโอ
  */
 async function getVideoInfo(url) {
-    try {
-        // ตรวจสอบว่าเป็น YouTube URL ที่ถูกต้อง
-        if (!ytdl.validateURL(url)) {
-            console.error('Invalid YouTube URL:', url);
-            return null;
-        }
+    return new Promise((resolve) => {
+        try {
+            const ytDlpPath = getYtDlpPath();
+            
+            const process = spawn(ytDlpPath, [
+                '--get-title',
+                '--get-duration',
+                '--get-thumbnail',
+                '--no-warnings',
+                '--no-playlist',
+                url
+            ]);
 
-        const info = await ytdl.getInfo(url);
-        
-        if (info && info.videoDetails) {
-            return {
-                title: info.videoDetails.title,
-                url: info.videoDetails.video_url,
-                duration: parseInt(info.videoDetails.lengthSeconds),
-                thumbnail: info.videoDetails.thumbnails[0]?.url,
-                author: info.videoDetails.author.name
-            };
+            let output = '';
+            process.stdout.on('data', (data) => {
+                output += data.toString();
+            });
+
+            process.on('close', (code) => {
+                if (code === 0 && output.trim()) {
+                    const lines = output.trim().split('\n');
+                    resolve({
+                        title: lines[0] || url,
+                        url: url,
+                        duration: lines[1] || '0',
+                        thumbnail: lines[2] || null
+                    });
+                } else {
+                    resolve(null);
+                }
+            });
+
+            process.on('error', () => {
+                resolve(null);
+            });
+        } catch (error) {
+            console.error('Error getting video info:', error);
+            resolve(null);
         }
-    } catch (error) {
-        console.error('Error getting video info:', error);
-    }
-    return null;
+    });
 }
 
 module.exports = {
