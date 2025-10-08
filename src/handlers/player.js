@@ -161,7 +161,33 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 }
             });
 
-            const resource = createAudioResource(ytdlpProcess.stdout, {
+            const ffmpegArgs = [
+                '-i', 'pipe:0', // Input from yt-dlp
+                '-af', 'bass=g=10', // Add bass boost filter
+                '-f', 'opus', // Output format
+                'pipe:1' // Output to stdout
+            ];
+
+            const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
+                shell: false,
+                windowsHide: true,
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
+
+            ytdlpProcess.stdout.pipe(ffmpegProcess.stdin); // Pipe yt-dlp output to FFmpeg
+
+            ffmpegProcess.stderr.on('data', (data) => {
+                console.error('FFmpeg error:', data.toString());
+            });
+
+            ffmpegProcess.on('close', (code) => {
+                if (code !== 0) {
+                    console.error('FFmpeg exited with code:', code);
+                    reject(new Error('FFmpeg process failed'));
+                }
+            });
+
+            const resource = createAudioResource(ffmpegProcess.stdout, {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: true
             });
