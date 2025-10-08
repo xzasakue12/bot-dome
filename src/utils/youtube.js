@@ -1,6 +1,27 @@
 const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
 const config = require('../config');
 const { getYtDlpPath } = require('./helpers');
+
+/**
+ * หา cookies path
+ */
+function getCookiesPath() {
+    const cookiesPaths = [
+        path.join(__dirname, '../../cookies.txt'),
+        path.join('/etc/secrets/cookies.txt'),
+        path.join(__dirname, '../cookies.txt'),
+        config.cookiesPath
+    ];
+    
+    for (const p of cookiesPaths) {
+        if (p && fs.existsSync(p)) {
+            return p;
+        }
+    }
+    return null;
+}
 
 /**
  * ค้นหาวิดีโอด้วย yt-dlp
@@ -9,14 +30,25 @@ async function searchYouTubeYtDlp(query, limit = 5) {
     return new Promise((resolve) => {
         try {
             const ytDlpPath = getYtDlpPath();
+            const cookiesPath = getCookiesPath();
             
-            const ytdlpProcess = spawn(ytDlpPath, [
+            const args = [];
+            
+            // เพิ่ม cookies ถ้ามี
+            if (cookiesPath) {
+                args.push('--cookies', cookiesPath);
+            }
+            
+            // เพิ่ม search query และ options
+            args.push(
                 `ytsearch${limit}:${query}`,
                 '--get-id',
                 '--get-title',
                 '--no-warnings',
                 '--quiet'
-            ]);
+            );
+            
+            const ytdlpProcess = spawn(ytDlpPath, args);
 
             let output = '';
             ytdlpProcess.stdout.on('data', (data) => {
@@ -94,15 +126,25 @@ async function getVideoInfo(url) {
     return new Promise((resolve) => {
         try {
             const ytDlpPath = getYtDlpPath();
+            const cookiesPath = getCookiesPath();
             
-            const process = spawn(ytDlpPath, [
+            const args = [];
+            
+            // เพิ่ม cookies ถ้ามี
+            if (cookiesPath) {
+                args.push('--cookies', cookiesPath);
+            }
+            
+            args.push(
                 '--get-title',
                 '--get-duration',
                 '--get-thumbnail',
                 '--no-warnings',
                 '--no-playlist',
                 url
-            ]);
+            );
+            
+            const process = spawn(ytDlpPath, args);
 
             let output = '';
             process.stdout.on('data', (data) => {

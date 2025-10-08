@@ -1,5 +1,7 @@
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
 const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
 const config = require('../config');
 const { getYtDlpPath, checkVoiceChannelEmpty } = require('../utils/helpers');
 const { getRandomYouTubeVideo } = require('../utils/youtube');
@@ -59,7 +61,7 @@ function checkAndLeaveIfEmpty(voiceChannel) {
 }
 
 /**
- * เล่นเพลงด้วย yt-dlp
+ * เล่นเพลงด้วย yt-dlp (แก้ไขให้รองรับ cookies)
  */
 async function playWithYtDlp(cleanUrl, message, connection) {
     return new Promise((resolve, reject) => {
@@ -68,7 +70,43 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             
             console.log('🎵 Starting yt-dlp stream for:', cleanUrl);
             
-            const ytdlpProcess = spawn(ytDlpPath, [
+            // สร้าง arguments สำหรับ yt-dlp
+            const ytdlpArgs = [];
+            
+            // ลองหา cookies.txt จากหลาย path
+            const cookiesPaths = [
+                path.join(__dirname, '../../cookies.txt'),        // root directory
+                path.join('/etc/secrets/cookies.txt'),           // Render secret files
+                path.join(__dirname, '../cookies.txt'),          // src directory
+                config.cookiesPath                               // จาก config ถ้ามี
+            ];
+            
+            let cookiesPath = null;
+            for (const p of cookiesPaths) {
+                if (p && fs.existsSync(p)) {
+                    cookiesPath = p;
+                    break;
+                }
+            }
+            
+            // เพิ่ม cookies ถ้าเจอไฟล์
+            if (cookiesPath) {
+                console.log('🍪 Using cookies for authentication:', cookiesPath);
+                ytdlpArgs.push('--cookies', cookiesPath);
+            } else {
+                console.warn('⚠️ No cookies.txt found - YouTube may block requests');
+            }
+            
+            // เพิ่ม user agent และ headers
+            ytdlpArgs.push(
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                '--add-header', 'Accept-Language:en-US,en;q=0.9',
+                '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                '--add-header', 'Sec-Fetch-Mode:navigate'
+            );
+            
+            // เพิ่ม format และ options
+            ytdlpArgs.push(
                 '-f', 'bestaudio/best',
                 '--no-playlist',
                 '--no-warnings',
@@ -77,7 +115,11 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 '--audio-format', 'opus',
                 '-o', '-',
                 cleanUrl
-            ], { 
+            );
+            
+            console.log('🔧 yt-dlp command:', ytDlpPath, ytdlpArgs.slice(0, 6).join(' '), '...');
+
+            const ytdlpProcess = spawn(ytDlpPath, ytdlpArgs, { 
                 shell: false,
                 windowsHide: true,
                 stdio: ['ignore', 'pipe', 'pipe']
@@ -98,6 +140,15 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 if (code !== 0 && code !== null) {
                     console.error('❌ yt-dlp exit code:', code);
                     console.error('stderr:', stderrOutput);
+                    
+                    // ตรวจจับ bot detection error
+                    if (stderrOutput.includes('Sign in to confirm') || 
+                        stderrOutput.includes('not a bot') ||
+                        stderrOutput.includes('bot detection')) {
+                        console.error('🤖 YouTube bot detection triggered!');
+                        console.error('💡 Your cookies.txt may be missing, invalid, or expired');
+                        console.error('📖 Export new cookies from YouTube: https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp');
+                    }
                 }
             });
 
