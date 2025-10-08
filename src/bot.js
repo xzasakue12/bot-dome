@@ -44,7 +44,7 @@ setClient(client);
 // ฟังก์ชันสำหรับใช้ yt-dlp ดึงข้อมูลเสียงจาก YouTube
 async function playWithYtDlp(url) {
     console.log(`🎵 Attempting to play: ${url}`);
-    exec(`./yt-dlp -f bestaudio ${url}`, (error, stdout, stderr) => {
+    exec(`./yt-dlp -f bestaudio --cookies cookies.txt ${url}`, (error, stdout, stderr) => {
         if (error) {
             console.error(`❌ yt-dlp Error: ${error.message}`);
             return;
