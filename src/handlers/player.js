@@ -335,13 +335,72 @@ async function playNext(guildId, lastVideoId = null) {
             console.error('❌ Voice connection error:', error);
         });
 
-        connection.on('stateChange', (oldState, newState) => {
+        connection.on('stateChange', async (oldState, newState) => {
             console.log(`🔄 Voice connection state changed: ${oldState.status} -> ${newState.status}`);
+
+            if (newState.status === 'ready') {
+                console.log('✅ Voice connection is ready! Starting playback.');
+                try {
+                    resource = await playWithYtDlp(cleanUrl, message, connection);
+                    if (!resource) {
+                        console.error('❌ No resource created');
+                        message.reply('❌ ไม่สามารถสร้าง audio stream ได้');
+                        config.state.isPlaying = false;
+                        return playNext(guildId, lastVideoId);
+                    }
+
+                    const player = createAudioPlayer();
+                    config.state.currentPlayer = player;
+                    connection.subscribe(player);
+
+                    player.play(resource);
+
+                    player.on(AudioPlayerStatus.Playing, () => {
+                        console.log('🎶 Now playing:', title || cleanUrl);
+                        message.channel.send(`🎶 กำลังเล่น: **${title || cleanUrl}**`)
+                            .catch(e => console.error('Send error:', e));
+                    });
+
+                    player.on(AudioPlayerStatus.Idle, () => {
+                        console.log('⏹️ Player idle, playing next...');
+
+                        if (voiceChannel && checkAndLeaveIfEmpty(voiceChannel)) {
+                            return;
+                        }
+
+                        if (config.loop.mode === 'song' && config.state.currentSong) {
+                            config.queue.unshift({ 
+                                cleanUrl: config.state.currentSong.cleanUrl, 
+                                voiceChannel: config.state.currentSong.voiceChannel, 
+                                message: { reply: (msg) => {}, channel: message.channel },
+                                textChannel: config.state.lastTextChannel,
+                                title: config.state.currentSong.title 
+                            });
+                        } else if (config.loop.mode === 'queue' && config.queue.length === 0 && config.loop.originalQueue.length > 0) {
+                            config.loop.originalQueue.forEach(song => config.queue.push({...song}));
+                        }
+
+                        playNext(guildId, videoId);
+                    });
+
+                    player.on('error', error => {
+                        console.error('❌ Audio player error:', error);
+                        message.channel.send('❌ เกิดข้อผิดพลาดในการเล่นเพลง')
+                            .catch(e => console.error('Send error:', e));
+                        playNext(guildId, videoId);
+                    });
+                } catch (error) {
+                    console.error('❌ Failed to play:', error);
+                    message.reply('❌ ไม่สามารถเล่นเพลงนี้ได้');
+                    config.state.isPlaying = false;
+                    return playNext(guildId, lastVideoId);
+                }
+            }
         });
 
         if (!connection || connection.state.status !== 'ready') {
-            console.error('❌ Voice connection is not ready. Skipping to the next song.');
-            return playNext(guildId, lastVideoId);
+            console.error('❌ Voice connection is not ready. Waiting for readiness.');
+            return;
         }
 
         return;
