@@ -223,7 +223,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 '--add-header', 'Accept-Language:en-US,en;q=0.9',
                 '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 '--add-header', 'Sec-Fetch-Mode:navigate',
-                '--buffer-size', '32K',
+                '--buffer-size', '64K',
                 '--retries', '5',
                 '-f', 'bestaudio/best',
                 '--no-playlist',
@@ -278,7 +278,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             const ffmpegArgs = [
                 '-i', 'pipe:0',
                 '-af', `bass=g=${bassGain}`,
-                '-b:a', '48k',
+                '-b:a', '64k',
                 '-f', 'opus',
                 '-hide_banner', '-loglevel', 'error',
                 'pipe:1'
@@ -525,31 +525,58 @@ async function playNext(guildId, lastVideoId = null) {
             });
 
             player.on(AudioPlayerStatus.Idle, () => {
-                console.log('⏹️ Player idle, playing next...');
-                
-                // Cleanup processes
+                console.log('⏹️ Player idle, checking next action...');
+
+                // Check if the current song was played completely
+                if (config.state.currentSong) {
+                    console.log(`✅ Finished playing: ${config.state.currentSong.title || config.state.currentSong.cleanUrl}`);
+                } else {
+                    console.warn('⚠️ Player went idle without a current song. Possible error occurred.');
+                }
+
+                // Cleanup processes for the current resource
                 if (resource.metadata && resource.metadata.cleanup) {
                     resource.metadata.cleanup();
                 }
-                
-                if (voiceChannel && checkAndLeaveIfEmpty(voiceChannel)) {
-                    processingGuilds.delete(guildId);
+
+                // Check if the queue is empty
+                if (config.queue.length === 0) {
+                    console.log('🔄 Queue is empty. Checking autoplay settings...');
+
+                    if (config.settings.autoplayEnabled) {
+                        console.log('🔄 Starting autoplay...');
+                        global.nextTimeout = setTimeout(async () => {
+                            const nextUrl = await getRandomYouTubeVideo();
+
+                            if (nextUrl && voiceChannel) {
+                                console.log('✅ Adding autoplay song:', nextUrl);
+                                config.queue.push({ 
+                                    cleanUrl: nextUrl, 
+                                    voiceChannel,
+                                    textChannel: config.state.lastTextChannel,
+                                    message: { 
+                                        reply: () => {},
+                                        channel: config.state.lastTextChannel
+                                    } 
+                                });
+
+                                try {
+                                    config.state.lastPlayedVideoId = extractVideoId(nextUrl);
+                                } catch (e) {
+                                    console.error('Extract ID error:', e);
+                                }
+
+                                return playNext(guildId, config.state.lastPlayedVideoId);
+                            }
+                        }, config.settings.autoplayDelay);
+                    } else {
+                        console.log('⏸️ Autoplay is disabled. Stopping playback.');
+                    }
+
                     return;
                 }
-                
-                if (config.loop.mode === 'song' && config.state.currentSong) {
-                    config.queue.unshift({ 
-                        cleanUrl: config.state.currentSong.cleanUrl, 
-                        voiceChannel: config.state.currentSong.voiceChannel, 
-                        message: { reply: () => {}, channel: message.channel },
-                        textChannel: config.state.lastTextChannel,
-                        title: config.state.currentSong.title 
-                    });
-                } else if (config.loop.mode === 'queue' && config.queue.length === 0 && config.loop.originalQueue.length > 0) {
-                    config.loop.originalQueue.forEach(song => config.queue.push({...song}));
-                }
-                
-                processingGuilds.delete(guildId);
+
+                // Play the next song in the queue
                 playNext(guildId, videoId);
             });
 
