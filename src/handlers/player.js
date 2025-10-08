@@ -1,4 +1,4 @@
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType, VoiceConnectionStatus } = require('@discordjs/voice');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -11,7 +11,10 @@ let client;
 // Connection retry management
 let connectionRetries = 0;
 const MAX_RETRIES = 3;
-const RETRY_DELAY = 5000; // 5 seconds
+const RETRY_DELAY = 2000;
+
+// Lock mechanism to prevent race conditions - ใช้ Set แทน boolean
+const processingGuilds = new Set();
 
 // Define cookiesPaths to include potential paths for cookies.txt
 const cookiesPaths = [
@@ -97,6 +100,27 @@ function checkAndLeaveIfEmpty(voiceChannel) {
 }
 
 /**
+ * Cleanup processes safely
+ */
+function cleanupProcesses(ytdlpProcess, ffmpegProcess) {
+    try {
+        if (ytdlpProcess && !ytdlpProcess.killed) {
+            ytdlpProcess.kill('SIGKILL');
+        }
+    } catch (e) {
+        console.error('Error killing yt-dlp:', e);
+    }
+    
+    try {
+        if (ffmpegProcess && !ffmpegProcess.killed) {
+            ffmpegProcess.kill('SIGKILL');
+        }
+    } catch (e) {
+        console.error('Error killing ffmpeg:', e);
+    }
+}
+
+/**
  * Setup connection event handlers with error recovery
  */
 function setupConnectionHandlers(connection, voiceChannel) {
@@ -157,7 +181,7 @@ function setupConnectionHandlers(connection, voiceChannel) {
         logOnce(stateChangeKey, `🔄 Voice connection: ${oldState.status} -> ${newState.status}`);
         
         // Reset retries when connection is ready
-        if (newState.status === 'ready') {
+        if (newState.status === VoiceConnectionStatus.Ready) {
             connectionRetries = 0;
             console.log('✅ Connection stable, retries reset');
         }
@@ -165,10 +189,14 @@ function setupConnectionHandlers(connection, voiceChannel) {
 }
 
 /**
- * เล่นเพลงด้วย yt-dlp (แก้ไขให้รองรับ cookies)
+ * เล่นเพลงด้วย yt-dlp (แก้ไข EPIPE error)
  */
 async function playWithYtDlp(cleanUrl, message, connection) {
     return new Promise((resolve, reject) => {
+        let ytdlpProcess;
+        let ffmpegProcess;
+        let isResolved = false;
+
         try {
             const ytdlpArgs = [];
             const ytDlpPath = getYtDlpPath();
@@ -209,7 +237,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             console.log('🔧 yt-dlp command:', ytDlpPath, ytdlpArgs.slice(0, 3).join(' '), '...');
 
-            const ytdlpProcess = spawn(ytDlpPath, ytdlpArgs, {
+            ytdlpProcess = spawn(ytDlpPath, ytdlpArgs, {
                 shell: false,
                 windowsHide: true,
                 stdio: ['ignore', 'pipe', 'pipe'],
@@ -223,12 +251,16 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             });
 
             ytdlpProcess.on('error', (err) => {
-                errorOnce('yt-dlp-error', `❌ yt-dlp process error: ${err}`);
-                reject(err);
+                if (!isResolved) {
+                    isResolved = true;
+                    errorOnce('yt-dlp-error', `❌ yt-dlp process error: ${err}`);
+                    cleanupProcesses(ytdlpProcess, ffmpegProcess);
+                    reject(err);
+                }
             });
 
             ytdlpProcess.on('close', (code) => {
-                if (code !== 0 && code !== null) {
+                if (code !== 0 && code !== null && !isResolved) {
                     console.error('❌ yt-dlp exit code:', code);
                     console.error('stderr:', stderrOutput);
 
@@ -252,29 +284,53 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 'pipe:1'
             ];
 
-            const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
+            ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
                 shell: false,
                 windowsHide: true,
                 stdio: ['pipe', 'pipe', 'pipe']
             });
 
-            ytdlpProcess.stdout.pipe(ffmpegProcess.stdin);
+            // Handle pipe errors to prevent EPIPE crashes
+            ytdlpProcess.stdout.on('error', (err) => {
+                if (err.code === 'EPIPE') {
+                    console.error('⚠️ yt-dlp stdout pipe closed');
+                    cleanupProcesses(ytdlpProcess, ffmpegProcess);
+                }
+            });
+
+            ffmpegProcess.stdin.on('error', (err) => {
+                if (err.code === 'EPIPE') {
+                    console.error('⚠️ FFmpeg stdin pipe closed');
+                    cleanupProcesses(ytdlpProcess, ffmpegProcess);
+                }
+            });
+
+            ytdlpProcess.stdout.pipe(ffmpegProcess.stdin).on('error', (err) => {
+                console.error('⚠️ Pipe error:', err);
+                cleanupProcesses(ytdlpProcess, ffmpegProcess);
+            });
 
             ffmpegProcess.stderr.on('data', (data) => {
-                if (process.env.DEBUG) {
-                    console.error('FFmpeg error:', data.toString());
+                const errorMsg = data.toString();
+                if (errorMsg.includes('error') || errorMsg.includes('failed')) {
+                    console.error('FFmpeg error:', errorMsg);
                 }
             });
 
             ffmpegProcess.on('error', (err) => {
-                console.error('❌ FFmpeg process error:', err);
-                reject(err);
+                if (!isResolved) {
+                    console.error('❌ FFmpeg process error:', err);
+                    cleanupProcesses(ytdlpProcess, ffmpegProcess);
+                    isResolved = true;
+                    reject(err);
+                }
             });
 
             ffmpegProcess.on('close', (code) => {
                 if (code !== 0 && code !== null) {
                     console.error(`FFmpeg exited with code: ${code}`);
                 }
+                cleanupProcesses(ytdlpProcess, ffmpegProcess);
             });
 
             const resource = createAudioResource(ffmpegProcess.stdout, {
@@ -286,22 +342,33 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 resource.volume.setVolume(0.5);
             }
 
+            // Store processes for cleanup later
+            resource.metadata = {
+                ytdlpProcess,
+                ffmpegProcess,
+                cleanup: () => cleanupProcesses(ytdlpProcess, ffmpegProcess)
+            };
+
             console.log('✅ yt-dlp stream created successfully');
+            isResolved = true;
             resolve(resource);
 
         } catch (error) {
-            console.error('❌ yt-dlp error:', error);
-            reject(error);
+            if (!isResolved) {
+                console.error('❌ yt-dlp error:', error);
+                cleanupProcesses(ytdlpProcess, ffmpegProcess);
+                reject(error);
+            }
         }
     });
 }
 
 /**
- * Wait for voice connection to be ready (เพิ่ม timeout และ better logging)
+ * Wait for voice connection to be ready
  */
-async function waitForConnectionReady(connection, timeout = 20000) {
+async function waitForConnectionReady(connection, timeout = 25000) {
     return new Promise((resolve, reject) => {
-        if (connection.state.status === 'ready') {
+        if (connection.state.status === VoiceConnectionStatus.Ready) {
             console.log('✅ Connection already ready');
             return resolve();
         }
@@ -312,37 +379,36 @@ async function waitForConnectionReady(connection, timeout = 20000) {
         const checkInterval = setInterval(() => {
             const elapsed = Date.now() - startTime;
             
-            if (connection.state.status === 'ready') {
+            if (connection.state.status === VoiceConnectionStatus.Ready) {
                 clearInterval(checkInterval);
                 console.log(`✅ Connection ready after ${elapsed}ms`);
                 resolve();
+            } else if (connection.state.status === VoiceConnectionStatus.Destroyed) {
+                clearInterval(checkInterval);
+                reject(new Error('Connection was destroyed'));
             } else if (elapsed > timeout) {
                 clearInterval(checkInterval);
                 console.error(`❌ Connection timeout after ${elapsed}ms`);
                 console.error(`   Last status: ${connection.state.status}`);
                 reject(new Error(`Voice connection not ready within ${timeout}ms`));
             } else if (elapsed % 5000 === 0) {
-                // Log progress every 5 seconds
                 console.log(`⏳ Still waiting... ${elapsed}ms elapsed, status: ${connection.state.status}`);
             }
-        }, 500); // Check every 500ms instead of 100ms
+        }, 500);
     });
 }
 
-// Lock mechanism to prevent race conditions
-let isProcessingNext = false;
-
 /**
- * เล่นเพลงถัดไป (แก้ไขแล้ว - ไม่มีข้อความซ้ำ)
+ * เล่นเพลงถัดไป (แก้ไข race condition)
  */
 async function playNext(guildId, lastVideoId = null) {
-    // Prevent multiple simultaneous calls
-    if (isProcessingNext) {
-        console.log('⚠️ Already processing next song, skipping duplicate call...');
+    // Prevent race conditions using Set
+    if (processingGuilds.has(guildId)) {
+        console.log('⚠️ Already processing next song for this guild, skipping...');
         return;
     }
     
-    isProcessingNext = true;
+    processingGuilds.add(guildId);
     
     try {
         if (config.state.leaveTimeout) clearTimeout(config.state.leaveTimeout);
@@ -373,9 +439,9 @@ async function playNext(guildId, lastVideoId = null) {
                 console.error('Error extracting videoId:', e);
             }
 
-            // Check if already connected to the voice channel
+            // Check if already connected
             let connection = config.state.currentConnection;
-            if (!connection || connection.state.status === 'destroyed') {
+            if (!connection || connection.state.status === VoiceConnectionStatus.Destroyed) {
                 console.log('🔌 Creating new voice connection...');
                 connection = joinVoiceChannel({
                     channelId: voiceChannel.id,
@@ -386,14 +452,12 @@ async function playNext(guildId, lastVideoId = null) {
                     debug: false
                 });
                 config.state.currentConnection = connection;
-
-                // Setup connection handlers
                 setupConnectionHandlers(connection, voiceChannel);
             }
 
-            // Wait for connection to be ready with increased timeout
+            // Wait for connection
             try {
-                await waitForConnectionReady(connection, 20000);
+                await waitForConnectionReady(connection, 25000);
                 console.log('✅ Voice connection ready');
             } catch (error) {
                 console.error('❌ Voice connection not ready:', error);
@@ -402,13 +466,11 @@ async function playNext(guildId, lastVideoId = null) {
                         .catch(e => console.error('Send error:', e));
                 }
                 
-                // Retry with new connection
                 config.state.currentConnection?.destroy();
                 config.state.currentConnection = null;
                 config.state.isPlaying = false;
-                isProcessingNext = false;
+                processingGuilds.delete(guildId);
                 
-                // Re-add to queue and retry
                 config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
                 
                 setTimeout(() => {
@@ -428,7 +490,7 @@ async function playNext(guildId, lastVideoId = null) {
                         .catch(e => console.error('Send error:', e));
                 }
                 config.state.isPlaying = false;
-                isProcessingNext = false;
+                processingGuilds.delete(guildId);
                 return playNext(guildId, lastVideoId);
             }
 
@@ -439,24 +501,21 @@ async function playNext(guildId, lastVideoId = null) {
                         .catch(e => console.error('Send error:', e));
                 }
                 config.state.isPlaying = false;
-                isProcessingNext = false;
+                processingGuilds.delete(guildId);
                 return;
             }
 
-            // Create or reuse player
             let player = config.state.currentPlayer;
             if (!player) {
                 player = createAudioPlayer();
                 config.state.currentPlayer = player;
                 connection.subscribe(player);
             } else {
-                // Clean up old listeners
                 player.removeAllListeners();
             }
             
             player.play(resource);
 
-            // ส่งข้อความเพียงครั้งเดียวเมื่อเริ่มเล่น
             player.once(AudioPlayerStatus.Playing, () => {
                 console.log('🎶 Now playing:', title || cleanUrl);
                 if (message && message.channel) {
@@ -468,8 +527,13 @@ async function playNext(guildId, lastVideoId = null) {
             player.on(AudioPlayerStatus.Idle, () => {
                 console.log('⏹️ Player idle, playing next...');
                 
+                // Cleanup processes
+                if (resource.metadata && resource.metadata.cleanup) {
+                    resource.metadata.cleanup();
+                }
+                
                 if (voiceChannel && checkAndLeaveIfEmpty(voiceChannel)) {
-                    isProcessingNext = false;
+                    processingGuilds.delete(guildId);
                     return;
                 }
                 
@@ -485,28 +549,34 @@ async function playNext(guildId, lastVideoId = null) {
                     config.loop.originalQueue.forEach(song => config.queue.push({...song}));
                 }
                 
-                isProcessingNext = false;
+                processingGuilds.delete(guildId);
                 playNext(guildId, videoId);
             });
 
             player.on('error', error => {
                 console.error('❌ Audio player error:', error);
+                
+                // Cleanup processes
+                if (resource.metadata && resource.metadata.cleanup) {
+                    resource.metadata.cleanup();
+                }
+                
                 if (message && message.channel) {
                     message.channel.send('❌ เกิดข้อผิดพลาดในการเล่นเพลง')
                         .catch(e => console.error('Send error:', e));
                 }
-                isProcessingNext = false;
+                processingGuilds.delete(guildId);
                 playNext(guildId, videoId);
             });
 
-            isProcessingNext = false;
+            processingGuilds.delete(guildId);
             return;
         }
 
         // Autoplay
         if (config.queue.length === 0 && lastVideoId && config.settings.autoplayEnabled) {
             console.log('🔄 Starting autoplay...');
-            isProcessingNext = false;
+            processingGuilds.delete(guildId);
             
             global.nextTimeout = setTimeout(async () => {
                 if (config.queue.length === 0) {
@@ -546,7 +616,6 @@ async function playNext(guildId, lastVideoId = null) {
             return;
         }
 
-        // ไม่มีเพลง ออกจากห้อง
         console.log('⏸️ Queue empty, setting leave timeout...');
         if (config.state.currentConnection) {
             config.state.leaveTimeout = setTimeout(() => {
@@ -558,11 +627,11 @@ async function playNext(guildId, lastVideoId = null) {
             }, config.settings.leaveTimeout);
         }
         config.state.isPlaying = false;
-        isProcessingNext = false;
+        processingGuilds.delete(guildId);
         
     } catch (error) {
         console.error('❌ Error in playNext:', error);
-        isProcessingNext = false;
+        processingGuilds.delete(guildId);
         throw error;
     }
 }
