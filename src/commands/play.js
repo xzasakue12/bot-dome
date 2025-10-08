@@ -100,6 +100,9 @@ module.exports = {
             console.log('Cannot get video title:', e);
         }
 
+        // ตรวจสอบว่ากำลังเล่นอยู่หรือไม่
+        const wasPlaying = config.state.isPlaying;
+
         // เพิ่มเข้าคิว
         config.queue.push({ 
             cleanUrl, 
@@ -109,11 +112,18 @@ module.exports = {
             title: songTitle 
         });
         
-        // ส่งข้อความแค่ครั้งเดียว
-        await message.reply(`✅ เพิ่มเข้าคิว: **${songTitle}**`);
+        // ส่งข้อความแค่ครั้งเดียว - แยกกรณีตามสถานะ
+        if (wasPlaying) {
+            // ถ้ากำลังเล่นอยู่ = เพิ่มเข้าคิว
+            const queuePosition = config.queue.length;
+            await message.reply(`✅ เพิ่มเข้าคิวที่ ${queuePosition}: **${songTitle}**`);
+        } else {
+            // ถ้าไม่ได้เล่น = จะเล่นทันที (playNext จะแจ้งเอง)
+            await message.reply(`✅ เพิ่มเข้าคิว: **${songTitle}**`);
+        }
         
         // เล่นเพลงถ้ายังไม่ได้เล่น
-        if (!config.state.isPlaying) {
+        if (!wasPlaying) {
             const { playNext } = require('../handlers/player');
             playNext(voiceChannel.guild.id);
         }
