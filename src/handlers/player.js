@@ -110,8 +110,8 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             // เพิ่ม buffer-size และ retries
             ytdlpArgs.push(
-                '--buffer-size', '16K',
-                '--retries', '3'
+                '--buffer-size', '64K',
+                '--retries', '5'
             );
 
             // เพิ่ม format และ options
