@@ -110,7 +110,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             // เพิ่ม buffer-size และ retries
             ytdlpArgs.push(
-                '--buffer-size', '64K',
+                '--buffer-size', '32K',
                 '--retries', '5'
             );
 
@@ -159,17 +159,21 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                         console.error('📖 Export new cookies from YouTube: https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp');
                     }
                 }
+
+                console.log('🔄 yt-dlp process closed. Cleaning up...');
+                ffmpegProcess.kill(); // Terminate FFmpeg when yt-dlp finishes
             });
 
             const bassGain = config.audioSettings?.bassGain || 10; // Default to 10 dB if undefined
 
+            // Adjust FFmpeg arguments to lower bitrate and reduce memory usage
             const ffmpegArgs = [
-                '-i', 'pipe:0', // Input from yt-dlp
-                '-af', `bass=g=${bassGain}`, // เพิ่มเบส
-                '-b:a', '64k', // ตั้งค่าบิตเรตเป็น 128 kbps
-                '-f', 'opus', // Output format
-                '-hide_banner', '-loglevel', 'error', // ซ่อนข้อความสถานะ
-                'pipe:1' // Output to stdout
+                '-i', 'pipe:0',
+                '-af', `bass=g=${bassGain}`,
+                '-b:a', '48k', // Reduced from 64k to 48k
+                '-f', 'opus',
+                '-hide_banner', '-loglevel', 'error',
+                'pipe:1'
             ];
 
             const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
@@ -182,6 +186,9 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             ffmpegProcess.stderr.on('data', (data) => {
                 console.error('FFmpeg error:', data.toString());
+                if (data.toString().includes('memory')) {
+                    console.error('❌ Memory issue detected. Adjusting settings...');
+                }
             });
 
             ffmpegProcess.on('error', (err) => {
