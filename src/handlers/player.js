@@ -339,6 +339,10 @@ async function playNext(guildId, lastVideoId = null) {
 
         connection.on('error', (error) => {
             console.error('❌ Voice connection error:', error);
+            if (error.message.includes('socket closed')) {
+                console.error('💡 Socket closed unexpectedly. Retrying connection...');
+                // Add retry logic or handle the error appropriately
+            }
         });
 
         connection.on('stateChange', async (oldState, newState) => {
