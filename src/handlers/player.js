@@ -587,7 +587,14 @@ async function playNext(guildId, lastVideoId = null) {
                 }
             }, 5000);
 
-            player.on(AudioPlayerStatus.Idle, () => {
+           player.on(AudioPlayerStatus.Idle, () => {
+                // ยกเลิก autoplay timeout ทันทีเมื่อเพลงจบ
+                if (global.nextTimeout) {
+                    clearTimeout(global.nextTimeout);
+                    global.nextTimeout = null;
+                    console.log('⏹️ Cleared pending autoplay timeout');
+                }
+                
                 const playDuration = playStartTime ? Date.now() - playStartTime : 0;
                 const durationStr = playDuration > 0 ? `${Math.round(playDuration / 1000)}s` : 'unknown';
                 
@@ -655,6 +662,7 @@ async function playNext(guildId, lastVideoId = null) {
 
                 if (config.queue.length > 0) {
                     console.log(`▶️ Found ${config.queue.length} song(s) in queue, playing next...`);
+                    processingGuilds.delete(guildId);
                     try {
                         playNext(guildId, videoId);
                     } catch (playNextError) {
@@ -666,10 +674,13 @@ async function playNext(guildId, lastVideoId = null) {
                 if (!config.settings.autoplayEnabled) {
                     console.log('⏸️ Autoplay is disabled. Stopping playback.');
                     config.state.isPlaying = false;
+                    processingGuilds.delete(guildId);
                     return;
                 }
 
                 console.log('🔄 Queue is empty. Autoplay is enabled. Waiting before autoplay...');
+                processingGuilds.delete(guildId);
+                
                 global.nextTimeout = setTimeout(async () => {
                     if (config.queue.length > 0) {
                         console.log('⚠️ Queue has songs now, canceling autoplay');
