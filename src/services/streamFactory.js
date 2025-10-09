@@ -5,6 +5,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const buildFfmpegArgs = require('../utils/buildFfmpegArgs');
+const { refreshSpotifyTokenIfNeeded } = require('../utils/playDlToken');
 
 function mapPlayStreamType(type) {
     switch (type) {
@@ -20,9 +21,7 @@ function mapPlayStreamType(type) {
 }
 
 async function createResourceWithPlayDl(track) {
-    if (play.is_expired && play.is_expired()) {
-        await play.refreshToken();
-    }
+    await refreshSpotifyTokenIfNeeded();
 
     const streamInfo = await play.stream(track.cleanUrl, { discordPlayerCompatibility: true });
     const audioStream = streamInfo.stream;
