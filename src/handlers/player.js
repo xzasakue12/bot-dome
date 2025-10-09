@@ -166,12 +166,14 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             });
 
             // ⭐ เพิ่มการตรวจสอบ stdout bytes
-            ytdlpProcess.stdout.on('data', (chunk) => {
-                ytdlpBytesReceived += chunk.length;
-                if (ytdlpBytesReceived === chunk.length) {
-                    console.log('✅ yt-dlp started sending audio data');
-                }
-            });
+                ytdlpProcess.stdout.on('data', (chunk) => {
+                    ytdlpBytesReceived += chunk.length;
+                
+                // ⭐ แสดง progress ทุก 1MB
+                    if (ytdlpBytesReceived % (1024 * 1024) < chunk.length) {
+                     console.log(`📥 Received ${Math.round(ytdlpBytesReceived / 1024 / 1024)}MB`);
+                    }
+             });
 
             ytdlpProcess.on('error', (err) => {
                 if (!isResolved) {
@@ -185,21 +187,13 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             ytdlpProcess.on('close', (code) => {
                 console.log(`📊 yt-dlp closed with code ${code}, sent ${ytdlpBytesReceived} bytes`);
                 
-                // ⭐ ตรวจสอบว่าส่งข้อมูลหรือไม่
+                const expectedBytes = expectedDuration ? (expectedDuration / 1000) * 16 * 1024 : 0;
+                const bytesPercent = expectedBytes > 0 ? (ytdlpBytesReceived / expectedBytes) * 100 : 0;
+                
                 if (ytdlpBytesReceived === 0) {
                     console.error('❌ yt-dlp sent NO DATA - likely failed to fetch video');
-                }
-                
-                if (code !== 0 && code !== null && !isResolved) {
-                    console.error('❌ yt-dlp exit code:', code);
-                    console.error('Full stderr output:', stderrOutput);
-
-                    if (stderrOutput.includes('Sign in to confirm') ||
-                        stderrOutput.includes('not a bot') ||
-                        stderrOutput.includes('bot detection')) {
-                        console.error('🤖 YouTube bot detection triggered!');
-                        console.error('💡 Your cookies.txt may be missing, invalid, or expired');
-                    }
+                } else if (bytesPercent < 50) {
+                    console.warn(`⚠️ yt-dlp sent only ${bytesPercent.toFixed(1)}% of expected data`);
                 }
             });
 
@@ -523,7 +517,7 @@ async function playNext(guildId, lastVideoId = null) {
                 }
             }, 5000);
 
-           player.on(AudioPlayerStatus.Idle, () => {
+            player.on(AudioPlayerStatus.Idle, () => {
                 // ยกเลิก autoplay timeout ทุกตัวทันทีเมื่อเพลงจบ
                 if (global.nextTimeout) {
                     clearTimeout(global.nextTimeout);
@@ -546,13 +540,13 @@ async function playNext(guildId, lastVideoId = null) {
                 console.log(`   hasStartedPlaying: ${hasStartedPlaying}, playDuration: ${playDuration}ms`);
                 
                 // ⭐ เช็คว่าเล่นจริงๆ หรือเปล่า (ใช้ expectedDuration)
-                if (resource.metadata?.expectedDuration) {
+               if (resource.metadata?.expectedDuration) {
                     const expectedDuration = resource.metadata.expectedDuration;
                     const percentPlayed = (playDuration / expectedDuration) * 100;
                     
                     console.log(`📊 Played ${Math.round(playDuration/1000)}s / ${Math.round(expectedDuration/1000)}s (${percentPlayed.toFixed(1)}%)`);
                     
-                    // ถ้าเล่นไม่ถึง 75% = มีปัญหา retry
+                    // ✅ เพิ่มเงื่อนไข: ถ้าเล่นไม่ถึง 75% = มีปัญหา
                     if (percentPlayed < 75 && hasStartedPlaying && playDuration > 10000) {
                         console.warn(`⚠️ Song ended prematurely at ${percentPlayed.toFixed(1)}% - RETRYING`);
                         
@@ -570,7 +564,7 @@ async function playNext(guildId, lastVideoId = null) {
                         return;
                     }
                 }
-                
+                            
                 // ตรวจสอบว่า connection ยังใช้งานได้อยู่หรือไม่
                 const connectionOk = connection && 
                     connection.state.status === VoiceConnectionStatus.Ready;
