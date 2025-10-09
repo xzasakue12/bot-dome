@@ -235,8 +235,17 @@ async function playNext(guildId, lastVideoId = null) {
     }
 
     processingGuilds.add(guildId);
-    
+
     try {
+        // Check if the previous song ended prematurely
+        if (config.state.currentSong && config.state.currentSong.playDuration < 5000) {
+            console.warn(`⚠️ Song ended too quickly (${config.state.currentSong.playDuration}ms), retrying...`);
+            config.queue.unshift(config.state.currentSong);
+            config.state.currentSong = null;
+            processingGuilds.delete(guildId);
+            return playNext(guildId, lastVideoId);
+        }
+
         // ยกเลิก timeout ทั้งหมดก่อน
         if (config.state.leaveTimeout) {
             clearTimeout(config.state.leaveTimeout);
