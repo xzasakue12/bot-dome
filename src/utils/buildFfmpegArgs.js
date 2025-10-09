@@ -1,25 +1,23 @@
-// utils/buildFfmpegArgs.js
-function buildFfmpegArgs() {
+function buildFfmpegArgs(options = {}) {
+    const {
+        input = 'pipe:0',
+        inputArgs = [],
+        filters = 'bass=g=10'
+    } = options;
+
     const args = [
-        '-i', 'pipe:0',
-        
-        // Audio processing
-        '-af', 'bass=g=10',
-        
-        // Output settings
+        ...inputArgs,
+        '-i', input,
+        '-af', filters,
         '-b:a', '128k',
         '-f', 'opus',
-        '-ar', '48000',  // ⭐ เพิ่ม sample rate ที่ชัดเจน
-        '-ac', '2',      // ⭐ stereo channels
-        
-        // Logging (เปลี่ยนจาก info เป็น error เพื่อลด noise)
+        '-ar', '48000',
+        '-ac', '2',
         '-hide_banner',
-        '-loglevel', 'error',  // ⭐ แก้ไขตรงนี้
-        
-        // Output
+        '-loglevel', 'error',
         'pipe:1'
     ];
-    
+
     return args;
 }
 

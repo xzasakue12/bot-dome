@@ -1,11 +1,14 @@
 const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const play = require('play-dl');
 const config = require('../config');
 const { getYtDlpPath } = require('../utils/helpers');
 const extractVideoId = require('../utils/extractVideoId');
+const fetch = require('node-fetch');
 
-/**
- * ดึงข้อมูลวิดีโอด้วย yt-dlp
- */
+const AUDIO_EXTENSIONS = new Set(['.mp3', '.flac', '.wav', '.aac', '.m4a', '.ogg', '.opus']);
+
 async function getVideoTitle(url) {
     return new Promise((resolve) => {
         try {
@@ -30,82 +33,293 @@ async function getVideoTitle(url) {
                 }
             });
 
-            process.on('error', () => {
-                resolve(null);
-            });
+            process.on('error', () => resolve(null));
         } catch (e) {
             resolve(null);
         }
     });
 }
 
+async function getVideoTitleFromApi(videoId) {
+    try {
+        const apiKey = process.env.YOUTUBE_API_KEY || config.youtubeApiKey;
+        if (!apiKey) return null;
+        const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${apiKey}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.items && data.items.length > 0) {
+            return data.items[0].snippet.title;
+        }
+        return null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function resolveLocalPath(input) {
+    if (!input) return null;
+
+    let candidate = input;
+    if (candidate.startsWith('~/')) {
+        candidate = path.join(process.env.HOME || process.cwd(), candidate.slice(2));
+    }
+
+    const resolved = path.resolve(candidate);
+
+    try {
+        const stats = fs.statSync(resolved);
+        if (stats.isFile()) {
+            return resolved;
+        }
+    } catch (e) {
+        return null;
+    }
+
+    return null;
+}
+
+function detectSource(rawInput) {
+    if (!rawInput) {
+        return { type: 'unknown' };
+    }
+
+    const trimmed = rawInput.trim();
+    if (!trimmed) {
+        return { type: 'unknown' };
+    }
+
+    if (/^file:\/\//i.test(trimmed)) {
+        const filePath = decodeURIComponent(trimmed.replace(/^file:\/\//i, ''));
+        const resolved = resolveLocalPath(filePath);
+        if (resolved) {
+            return { type: 'local', path: resolved };
+        }
+        return { type: 'unknown' };
+    }
+
+    try {
+        const parsed = new URL(trimmed);
+        const host = parsed.hostname.toLowerCase();
+
+        if (host.includes('youtube.com') || host === 'youtu.be') {
+            let videoId = null;
+            try {
+                videoId = extractVideoId(parsed.toString());
+            } catch (e) {
+                videoId = null;
+            }
+
+            if (!videoId) {
+                return { type: 'unknown' };
+            }
+
+            return {
+                type: 'youtube',
+                url: `https://www.youtube.com/watch?v=${videoId}`,
+                videoId
+            };
+        }
+
+        if (host.includes('soundcloud.com') || host === 'snd.sc') {
+            return { type: 'soundcloud', url: parsed.toString() };
+        }
+
+        const ext = path.extname(parsed.pathname).toLowerCase();
+        if (AUDIO_EXTENSIONS.has(ext)) {
+            return { type: 'http-audio', url: parsed.toString() };
+        }
+
+        return { type: 'unknown', url: parsed.toString() };
+    } catch (e) {
+        const resolved = resolveLocalPath(trimmed);
+        if (resolved) {
+            return { type: 'local', path: resolved };
+        }
+        return { type: 'unknown', url: trimmed };
+    }
+}
+
+function buildHttpTitle(urlString) {
+    try {
+        const parsed = new URL(urlString);
+        const base = path.basename(parsed.pathname);
+        const decoded = decodeURIComponent(base);
+        return decoded || parsed.hostname;
+    } catch (e) {
+        return urlString;
+    }
+}
+
+function buildLocalTitle(filePath) {
+    return path.basename(filePath);
+}
+
+async function fetchYouTubeMetadata(url, videoId) {
+    let title = url;
+    let durationMs = null;
+
+    try {
+        if (play.is_expired && play.is_expired()) {
+            await play.refreshToken();
+        }
+
+        const info = await play.video_basic_info(url);
+        if (info && info.video_details) {
+            title = info.video_details.title || title;
+            if (info.video_details.durationInSec) {
+                durationMs = info.video_details.durationInSec * 1000;
+            }
+        }
+    } catch (error) {
+        console.warn('⚠️ play-dl YouTube metadata failed:', error.message || error);
+    }
+
+    if (!title || title === url) {
+        try {
+            const fallbackTitle = await getVideoTitle(url);
+            if (fallbackTitle) {
+                title = fallbackTitle;
+            } else if (videoId) {
+                const apiTitle = await getVideoTitleFromApi(videoId);
+                if (apiTitle) {
+                    title = apiTitle;
+                }
+            }
+        } catch (e) {
+            console.error('❌ YouTube metadata fallback error:', e);
+        }
+    }
+
+    return { title: title || url, url, durationMs };
+}
+
+async function fetchSoundCloudMetadata(url) {
+    let title = url;
+    let durationMs = null;
+
+    try {
+        if (play.is_expired && play.is_expired()) {
+            await play.refreshToken();
+        }
+
+        const info = await play.soundcloud(url);
+        if (info) {
+            title = info.name || info.title || title;
+            if (info.durationInSec) {
+                durationMs = info.durationInSec * 1000;
+            }
+        }
+    } catch (error) {
+        console.warn('⚠️ SoundCloud metadata failed:', error.message || error);
+    }
+
+    return { title, url, durationMs };
+}
+
+async function resolveTrack(input) {
+    const source = detectSource(input);
+    if (!source || source.type === 'unknown') {
+        return null;
+    }
+
+    switch (source.type) {
+        case 'youtube': {
+            const metadata = await fetchYouTubeMetadata(source.url, source.videoId);
+            return {
+                ...metadata,
+                sourceType: 'youtube',
+                streamData: null,
+                durationMs: metadata.durationMs || null,
+                videoId: source.videoId
+            };
+        }
+        case 'soundcloud': {
+            const metadata = await fetchSoundCloudMetadata(source.url);
+            return {
+                ...metadata,
+                sourceType: 'soundcloud',
+                streamData: null,
+                durationMs: metadata.durationMs || null,
+                videoId: null
+            };
+        }
+        case 'http-audio':
+            return {
+                title: buildHttpTitle(source.url),
+                url: source.url,
+                sourceType: 'http-audio',
+                streamData: null,
+                durationMs: null,
+                videoId: null
+            };
+        case 'local':
+            return {
+                title: buildLocalTitle(source.path),
+                url: source.path,
+                sourceType: 'local',
+                streamData: { path: source.path },
+                durationMs: null,
+                videoId: null
+            };
+        default:
+            return null;
+    }
+}
+
 module.exports = {
     name: 'play',
-    description: 'เล่นเพลงจาก YouTube URL',
+    description: 'เล่นเพลงจากลิงก์หรือไฟล์เสียง',
     
     async execute(message, args) {
-        const urlMatch = message.content.match(/https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\S+/i);
-        const url = urlMatch ? urlMatch[0].split('&')[0] : null;
-
-        if (!url || typeof url !== 'string' || !url.startsWith('http')) {
-            return message.reply('❌ กรุณาใส่ลิงก์ YouTube ที่ถูกต้อง');
-        }
-
-        let videoId;
-        let cleanUrl;
-        try {
-            videoId = extractVideoId(url);
-            if (!videoId) {
-                return message.reply('❌ ไม่สามารถอ่านลิงก์ YouTube นี้ได้');
-            }
-            cleanUrl = `https://www.youtube.com/watch?v=${videoId}`;
-        } catch (e) {
-            console.log('Error extracting videoId:', e);
-            return message.reply('❌ ไม่สามารถอ่านลิงก์ YouTube นี้ได้');
-        }
-
         const voiceChannel = message.member.voice.channel;
         if (!voiceChannel) {
             return message.reply('❌ คุณต้องอยู่ในห้องเสียงก่อน');
         }
 
-        // เก็บช่องข้อความที่ใช้งาน
+        const argInput = args.length ? args.join(' ').trim() : '';
+        let rawInput = argInput;
+
+        if (!rawInput) {
+            const urlMatch = message.content.match(/https?:\/\/\S+/i);
+            if (urlMatch && urlMatch[0]) {
+                rawInput = urlMatch[0];
+            }
+        }
+
+        if (!rawInput) {
+            return message.reply('❌ กรุณาใส่ลิงก์เพลง, URL เสียง, หรือระบุไฟล์บนเครื่อง');
+        }
+
+        const trackInfo = await resolveTrack(rawInput);
+        if (!trackInfo) {
+            return message.reply('❌ ไม่สามารถประมวลผลแหล่งเสียงนี้ได้');
+        }
+
+        const trackTitle = trackInfo.title || trackInfo.url;
+
         config.state.lastTextChannel = message.channel;
 
-        // ดึงชื่อเพลง (แบบ silent - ไม่แจ้งเตือน)
-        let songTitle = cleanUrl;
-        try {
-            const title = await getVideoTitle(cleanUrl);
-            if (title) {
-                songTitle = title;
-            }
-        } catch (e) {
-            console.log('Cannot get video title:', e);
-        }
-
-        // ตรวจสอบว่ากำลังเล่นอยู่หรือไม่
         const wasPlaying = config.state.isPlaying;
 
-        // เพิ่มเข้าคิว
-        config.queue.push({ 
-            cleanUrl, 
-            voiceChannel, 
-            message, 
-            textChannel: message.channel, 
-            title: songTitle 
+        config.queue.push({
+            cleanUrl: trackInfo.url,
+            voiceChannel,
+            message,
+            textChannel: message.channel,
+            title: trackTitle,
+            sourceType: trackInfo.sourceType,
+            streamData: trackInfo.streamData || null,
+            durationMs: trackInfo.durationMs || null,
+            videoId: trackInfo.videoId || null
         });
-        
-        // ส่งข้อความแค่ครั้งเดียว - แยกกรณีตามสถานะ
+
         if (wasPlaying) {
-            // ถ้ากำลังเล่นอยู่ = เพิ่มเข้าคิว
             const queuePosition = config.queue.length;
-            await message.reply(`✅ เพิ่มเข้าคิวที่ ${queuePosition}: **${songTitle}**`);
+            await message.reply(`✅ เพิ่มเข้าคิวที่ ${queuePosition}: **${trackTitle}**`);
         } else {
-            // ถ้าไม่ได้เล่น = จะเล่นทันที (playNext จะแจ้งเอง)
-            await message.reply(`✅ เพิ่มเข้าคิว: **${songTitle}**`);
+            await message.reply(`✅ เพิ่มเข้าคิว: **${trackTitle}**`);
         }
-        
-        // เล่นเพลงถ้ายังไม่ได้เล่น
+
         if (!wasPlaying) {
             const { playNext } = require('../handlers/player');
             playNext(voiceChannel.guild.id);

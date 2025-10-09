@@ -9,6 +9,7 @@ const { logOnce, warnOnce, errorOnce } = require('../utils/logger');
 const { cleanupProcesses } = require('../services/resourceManager');
 const { setupConnectionHandlers } = require('../services/connectionManager');
 const { checkAndLeaveIfEmpty } = require('../services/voiceChannelManager');
+const { createResourceForTrack } = require('../services/streamFactory');
 const extractVideoId = require('../utils/extractVideoId');
 const buildYtDlpArgs = require('../utils/buildYtDlpArgs');
 const buildFfmpegArgs = require('../utils/buildFfmpegArgs');
@@ -454,12 +455,23 @@ async function playNext(guildId, lastVideoId = null) {
                 const nextUrl = await getRandomYouTubeVideo();
 
                 if (nextUrl) {
+                    let autoVideoId = null;
+                    try {
+                        autoVideoId = extractVideoId(nextUrl);
+                    } catch (e) {
+                        console.error('Autoplay extract error:', e);
+                    }
+
                     config.queue.push({
                         cleanUrl: nextUrl,
                         voiceChannel: config.state.currentSong.voiceChannel,
                         textChannel: config.state.lastTextChannel,
                         message: { reply: () => {} },
-                        title: 'Autoplay Song'
+                        title: 'Autoplay Song',
+                        sourceType: 'youtube',
+                        streamData: null,
+                        durationMs: null,
+                        videoId: autoVideoId
                     });
                     return playNext(guildId, nextUrl);
                 }
@@ -485,19 +497,36 @@ async function playNext(guildId, lastVideoId = null) {
         if (config.queue.length > 0) {
             config.state.isPlaying = true;
             config.state.isPaused = false;
-            
-            const { cleanUrl, voiceChannel, message, textChannel, title } = config.queue.shift();
+
+            const track = config.queue.shift();
+            const {
+                cleanUrl,
+                voiceChannel,
+                message,
+                textChannel,
+                title,
+                sourceType,
+                durationMs,
+                videoId: queuedVideoId
+            } = track;
+
             console.log('🎵 Playing from queue:', title || cleanUrl);
-            
-            config.state.currentSong = { cleanUrl, title: title || cleanUrl, voiceChannel };
-            
+
+            config.state.currentSong = {
+                ...track,
+                title: title || cleanUrl,
+                voiceChannel
+            };
+
             if (textChannel) {
                 config.state.lastTextChannel = textChannel;
             }
-            
-            let videoId = null;
+
+            let videoId = queuedVideoId || null;
             try {
-                videoId = extractVideoId(cleanUrl);
+                if (!videoId) {
+                    videoId = extractVideoId(cleanUrl);
+                }
                 config.state.lastPlayedVideoId = videoId;
             } catch (e) {
                 console.error('Error extracting videoId:', e);
@@ -530,7 +559,7 @@ async function playNext(guildId, lastVideoId = null) {
                     
                     config.state.isPlaying = false;
                     processingGuilds.delete(guildId);
-                    config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
+                    config.queue.unshift(track);
                     
                     const state = connectionState.get(guildId) || { retries: 0 };
                     if (state.retries < MAX_RETRIES) {
@@ -555,7 +584,7 @@ async function playNext(guildId, lastVideoId = null) {
                     config.state.currentConnection = null;
                     config.state.isPlaying = false;
                     processingGuilds.delete(guildId);
-                    config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
+                    config.queue.unshift(track);
                     
                     setTimeout(() => {
                         playNext(guildId, lastVideoId);
@@ -565,17 +594,26 @@ async function playNext(guildId, lastVideoId = null) {
             }
 
             let resource;
-            
+
             try {
-                resource = await playWithYtDlp(cleanUrl, message, connection);
+                resource = await createResourceForTrack(track, {
+                    fallback: async () => playWithYtDlp(cleanUrl, message, connection)
+                });
             } catch (error) {
                 console.error('❌ Failed to play:', error);
                 if (message && message.channel) {
                     let userMessage = '❌ ไม่สามารถเล่นเพลงนี้ได้';
-                    if (error && error.code === 'YTDLP_BOT_DETECTION') {
+
+                    if (sourceType === 'local' && (error.code === 'LOCAL_FILE_MISSING' || error.code === 'ENOENT')) {
+                        userMessage = '❌ ไม่พบไฟล์เพลงบนเครื่องนี้';
+                    } else if (sourceType === 'http-audio') {
+                        userMessage = '❌ ไม่สามารถสตรีมไฟล์เสียงนี้ได้';
+                    } else if (error && error.code === 'YTDLP_BOT_DETECTION') {
                         userMessage = '❌ YouTube ต้องการการยืนยันเพิ่มเติม กรุณาอัปโหลด cookies.txt ใหม่ใน Render แล้วลองอีกครั้ง.';
                     } else if (error && (error.code === 'YTDLP_NO_DATA' || error.code === 'YTDLP_STREAM_TIMEOUT')) {
                         userMessage = '❌ ไม่สามารถสตรีมเพลงจาก YouTube ได้ (yt-dlp ไม่มีข้อมูล) โปรดตรวจสอบลิงก์หรืออัปเดต cookies.txt.';
+                    } else if (error && error.message) {
+                        userMessage = `❌ ${error.message}`;
                     }
 
                     message.channel.send(userMessage)
@@ -692,7 +730,7 @@ async function playNext(guildId, lastVideoId = null) {
                         }
                         
                         // Retry current song แทนที่จะเล่นเพลงใหม่
-                        config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
+                        config.queue.unshift(track);
                         processingGuilds.delete(idleLockKey);
                         processingGuilds.delete(guildId);
                         config.state.isPlaying = false;
@@ -717,7 +755,7 @@ async function playNext(guildId, lastVideoId = null) {
                         }
                     }
                     
-                    config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
+                    config.queue.unshift(track);
                     config.state.isPlaying = false;
                     processingGuilds.delete(idleLockKey);
                     processingGuilds.delete(guildId);
@@ -742,7 +780,7 @@ async function playNext(guildId, lastVideoId = null) {
                     }
                     
                     // Retry current song
-                    config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
+                    config.queue.unshift(track);
                     processingGuilds.delete(idleLockKey);
                     processingGuilds.delete(guildId);
                     config.state.isPlaying = false;
@@ -763,7 +801,7 @@ async function playNext(guildId, lastVideoId = null) {
                         }
                     }
                     
-                    config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
+                    config.queue.unshift(track);
                     processingGuilds.delete(idleLockKey);
                     processingGuilds.delete(guildId);
                     config.state.isPlaying = false;
@@ -837,6 +875,15 @@ async function playNext(guildId, lastVideoId = null) {
 
                     if (nextUrl && voiceChannel) {
                         console.log('✅ Adding autoplay song:', nextUrl);
+
+                        let autoVideoId = null;
+                        try {
+                            autoVideoId = extractVideoId(nextUrl);
+                            config.state.lastPlayedVideoId = autoVideoId;
+                        } catch (e) {
+                            console.error('Extract ID error:', e);
+                        }
+
                         config.queue.push({ 
                             cleanUrl: nextUrl, 
                             voiceChannel,
@@ -845,14 +892,12 @@ async function playNext(guildId, lastVideoId = null) {
                                 reply: () => {},
                                 channel: config.state.lastTextChannel
                             },
-                            title: 'Autoplay Song'
+                            title: 'Autoplay Song',
+                            sourceType: 'youtube',
+                            streamData: null,
+                            durationMs: null,
+                            videoId: autoVideoId
                         });
-
-                        try {
-                            config.state.lastPlayedVideoId = extractVideoId(nextUrl);
-                        } catch (e) {
-                            console.error('Extract ID error:', e);
-                        }
 
                         return playNext(guildId, config.state.lastPlayedVideoId);
                     } else {

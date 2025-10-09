@@ -47,7 +47,11 @@ module.exports = {
                 voiceChannel, 
                 message, 
                 textChannel: message.channel, 
-                title: songTitle 
+                title: songTitle,
+                sourceType: 'youtube',
+                streamData: null,
+                durationMs: null,
+                videoId: firstVideo.videoId || null
             });
 
             if (!config.state.isPlaying) {
