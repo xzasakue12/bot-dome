@@ -1,7 +1,7 @@
 const dotenv = require('dotenv');
 const { Client, GatewayIntentBits } = require('discord.js');
 const config = require('./config');
-const { setClient } = require('./handlers/player');
+const { setClient, initializePlayer } = require('./handlers/player');
 const { handleVoiceStateUpdate } = require('./handlers/voiceState');
 const { loadCommands, handleCommand } = require('./handlers/commandHandler');
 const fs = require('fs');
@@ -95,12 +95,15 @@ process.on('uncaughtException', (error) => {
     console.warn('💡 Ensure all dependencies and configurations are correct.');
 });
 
-// Login
-client.login(process.env.TOKEN || process.env.DISCORD_BOT_TOKEN)
-    .catch((error) => {
-        console.error('Failed to login:', error);
-        process.exit(1);
-    });
+async function startBot() {
+    await initializePlayer();
+    await client.login(process.env.TOKEN || process.env.DISCORD_BOT_TOKEN);
+}
+
+startBot().catch((error) => {
+    console.error('Failed to start bot:', error);
+    process.exit(1);
+});
 
 // Shutdown gracefully
 process.on('SIGINT', () => {

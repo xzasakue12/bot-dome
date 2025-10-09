@@ -29,7 +29,8 @@ const processingGuilds = new Set();
 const cookiesPaths = [
     path.resolve(__dirname, '../../cookies.txt'),
     path.resolve(__dirname, '../../youtube_cookies.txt'),
-    '/etc/secrets/cookies.txt'
+    '/etc/secrets/cookies.txt',
+    '/etc/secrets/youtube_cookies.txt'
 ];
 
 // Utility to track logs
@@ -93,13 +94,27 @@ async function validateCookies(cookiesPath) {
     });
 }
 
-// เรียกใช้ตอนเริ่มบอท
-if (cookiesPath) {
-    const isValid = await validateCookies(cookiesPath);
-    if (!isValid) {
-        console.error('🚨 Bot cannot start - invalid cookies!');
-        process.exit(1);
+let cookiesValidationPromise = null;
+
+async function initializePlayer() {
+    if (cookiesValidationPromise) {
+        return cookiesValidationPromise;
     }
+
+    const cookiesPath = config.cookiesPath;
+    if (!cookiesPath) {
+        cookiesValidationPromise = Promise.resolve();
+        return cookiesValidationPromise;
+    }
+
+    cookiesValidationPromise = (async () => {
+        const isValid = await validateCookies(cookiesPath);
+        if (!isValid) {
+            throw new Error('🚨 Bot cannot start - invalid cookies!');
+        }
+    })();
+
+    return cookiesValidationPromise;
 }
 
 async function playWithYtDlp(cleanUrl, message, connection) {
@@ -117,7 +132,8 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             logOnce('yt-dlp-start', `🎵 Starting yt-dlp stream for: ${cleanUrl}`);
 
             let cookiesPath = null;
-            for (const p of cookiesPaths) {
+            const candidatePaths = config.cookiesPath ? [config.cookiesPath, ...cookiesPaths] : cookiesPaths;
+            for (const p of candidatePaths) {
                 if (p && fs.existsSync(p)) {
                     cookiesPath = p;
                     break;
@@ -869,5 +885,7 @@ async function playNext(guildId, lastVideoId = null) {
 
 module.exports = {
     setClient,
-    playNext
+    playNext,
+    initializePlayer
 };
+
