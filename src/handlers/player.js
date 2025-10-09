@@ -65,6 +65,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
         let ytdlpProcess;
         let ffmpegProcess;
         let isResolved = false;
+        let expectedDuration = null; // ⭐ เพิ่ม
 
         try {
             const ytdlpArgs = buildYtDlpArgs(cleanUrl);
@@ -98,8 +99,24 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             let stderrOutput = '';
 
+            // ⭐ แก้ไข stderr handler เพื่อดึง duration
             ytdlpProcess.stderr.on('data', (data) => {
-                stderrOutput += data.toString();
+                const output = data.toString();
+                stderrOutput += output;
+                
+                // ⭐ ดึง duration จาก --print duration (บรรทัดแรกที่เป็นตัวเลข)
+                if (!expectedDuration && output.trim().match(/^\d+(\.\d+)?$/)) {
+                    expectedDuration = Math.round(parseFloat(output.trim()) * 1000);
+                    console.log(`📊 Expected duration: ${expectedDuration}ms (${Math.round(expectedDuration/1000)}s)`);
+                }
+                
+                // ตรวจสอบ bot detection
+                if (output.includes('Sign in to confirm') ||
+                    output.includes('not a bot') ||
+                    output.includes('bot detection')) {
+                    console.error('🤖 YouTube bot detection triggered!');
+                    console.error('💡 Your cookies.txt may be missing, invalid, or expired');
+                }
             });
 
             ytdlpProcess.on('error', (err) => {
@@ -157,9 +174,11 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 }
             });
 
+            // ⭐ เพิ่ม expectedDuration ใน metadata
             resource.metadata = {
                 ytdlpProcess,
                 ffmpegProcess,
+                expectedDuration,  // ⭐ เพิ่มตรงนี้
                 hasReceivedData: () => dataReceived,
                 cleanup: () => cleanupProcesses(ytdlpProcess, ffmpegProcess)
             };
@@ -167,8 +186,10 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             ytdlpProcess.stdout.on('error', (err) => {
                 if (err.code === 'EPIPE') {
                     console.error('⚠️ yt-dlp stdout pipe closed');
-                    cleanupProcesses(ytdlpProcess, ffmpegProcess);
+                    // ไม่ cleanup ทันที ให้ idle handler จัดการ
+                    return;
                 }
+                cleanupProcesses(ytdlpProcess, ffmpegProcess);
             });
 
             ffmpegProcess.stdin.on('error', (err) => {
@@ -439,7 +460,7 @@ async function playNext(guildId, lastVideoId = null) {
                 }
             }, 5000);
 
-            player.on(AudioPlayerStatus.Idle, () => {
+           player.on(AudioPlayerStatus.Idle, () => {
                 // ยกเลิก autoplay timeout ทุกตัวทันทีเมื่อเพลงจบ
                 if (global.nextTimeout) {
                     clearTimeout(global.nextTimeout);
@@ -460,6 +481,32 @@ async function playNext(guildId, lastVideoId = null) {
                 
                 console.log(`⏹️ Player idle after ${durationStr}, checking next action...`);
                 console.log(`   hasStartedPlaying: ${hasStartedPlaying}, playDuration: ${playDuration}ms`);
+                
+                // ⭐ เช็คว่าเล่นจริงๆ หรือเปล่า (ใช้ expectedDuration)
+                if (resource.metadata?.expectedDuration) {
+                    const expectedDuration = resource.metadata.expectedDuration;
+                    const percentPlayed = (playDuration / expectedDuration) * 100;
+                    
+                    console.log(`📊 Played ${Math.round(playDuration/1000)}s / ${Math.round(expectedDuration/1000)}s (${percentPlayed.toFixed(1)}%)`);
+                    
+                    // ถ้าเล่นไม่ถึง 75% = มีปัญหา retry
+                    if (percentPlayed < 75 && hasStartedPlaying && playDuration > 10000) {
+                        console.warn(`⚠️ Song ended prematurely at ${percentPlayed.toFixed(1)}% - RETRYING`);
+                        
+                        if (resource.metadata?.cleanup) {
+                            resource.metadata.cleanup();
+                        }
+                        
+                        // Retry current song แทนที่จะเล่นเพลงใหม่
+                        config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
+                        processingGuilds.delete(idleLockKey);
+                        processingGuilds.delete(guildId);
+                        config.state.isPlaying = false;
+                        
+                        setTimeout(() => playNext(guildId, videoId), 3000);
+                        return;
+                    }
+                }
                 
                 // ตรวจสอบว่า connection ยังใช้งานได้อยู่หรือไม่
                 const connectionOk = connection && 
@@ -488,8 +535,9 @@ async function playNext(guildId, lastVideoId = null) {
                     return;
                 }
                 
-                if (!hasStartedPlaying || playDuration < 5000) {
-                    console.warn(`⚠️ Song stopped too quickly (${durationStr}) - possible stream issue`);
+                // ⭐ ถ้าเล่นเร็วเกินไป (< 10s) = ไม่ได้เริ่มเล่นจริง
+                if (playDuration < 10000 && hasStartedPlaying) {
+                    console.warn(`⚠️ Song ended too quickly (${Math.round(playDuration/1000)}s) - RETRYING`);
                     
                     if (resource.metadata && resource.metadata.cleanup) {
                         try {
@@ -499,21 +547,45 @@ async function playNext(guildId, lastVideoId = null) {
                         }
                     }
                     
-                    if (!hasStartedPlaying) {
-                        console.log('🔄 Retrying current song...');
-                        config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
-                    }
-                    
+                    // Retry current song
+                    config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
                     processingGuilds.delete(idleLockKey);
                     processingGuilds.delete(guildId);
+                    config.state.isPlaying = false;
+                    
+                    setTimeout(() => playNext(guildId, videoId), 2000);
+                    return;
+                }
+                
+                // ถ้าไม่ได้เริ่มเล่นเลย
+                if (!hasStartedPlaying) {
+                    console.warn(`⚠️ Song never started playing - RETRYING`);
+                    
+                    if (resource.metadata && resource.metadata.cleanup) {
+                        try {
+                            resource.metadata.cleanup();
+                        } catch (e) {
+                            console.error('Cleanup error:', e);
+                        }
+                    }
+                    
+                    config.queue.unshift({ cleanUrl, voiceChannel, message, textChannel, title });
+                    processingGuilds.delete(idleLockKey);
+                    processingGuilds.delete(guildId);
+                    config.state.isPlaying = false;
+                    
                     setTimeout(() => playNext(guildId, videoId), 2000);
                     return;
                 }
 
+                // ⭐ เล่นจบจริง! 🎉
+                console.log(`✅ Song completed successfully`);
+                
                 if (config.state.currentSong) {
                     console.log(`✅ Finished playing: ${config.state.currentSong.title || config.state.currentSong.cleanUrl}`);
                 }
 
+                // Cleanup resources
                 if (resource.metadata && resource.metadata.cleanup) {
                     try {
                         resource.metadata.cleanup();
@@ -522,6 +594,7 @@ async function playNext(guildId, lastVideoId = null) {
                     }
                 }
 
+                // เช็คว่ามีเพลงใน queue หรือไม่
                 if (config.queue.length > 0) {
                     console.log(`▶️ Found ${config.queue.length} song(s) in queue, playing next...`);
                     processingGuilds.delete(idleLockKey);
@@ -534,6 +607,7 @@ async function playNext(guildId, lastVideoId = null) {
                     return;
                 }
 
+                // ถ้า autoplay ปิดอยู่
                 if (!config.settings.autoplayEnabled) {
                     console.log('⏸️ Autoplay is disabled. Stopping playback.');
                     config.state.isPlaying = false;
@@ -542,6 +616,7 @@ async function playNext(guildId, lastVideoId = null) {
                     return;
                 }
 
+                // ⭐ เริ่ม autoplay (หลังจากแน่ใจว่าเพลงเล่นจบจริง)
                 console.log('🔄 Queue is empty. Autoplay is enabled. Waiting before autoplay...');
                 processingGuilds.delete(idleLockKey);
                 processingGuilds.delete(guildId);
@@ -552,7 +627,7 @@ async function playNext(guildId, lastVideoId = null) {
                     return;
                 }
                 
-                const autoplayDelay = config.settings.autoplayDelay || 5000;
+                const autoplayDelay = config.settings.autoplayDelay || 3000;
                 console.log(`⏰ Autoplay will start in ${autoplayDelay}ms (${Math.round(autoplayDelay/1000)}s)`);
                 
                 global.nextTimeout = setTimeout(async () => {
@@ -575,7 +650,8 @@ async function playNext(guildId, lastVideoId = null) {
                             message: { 
                                 reply: () => {},
                                 channel: config.state.lastTextChannel
-                            } 
+                            },
+                            title: 'Autoplay Song'
                         });
 
                         try {
@@ -585,10 +661,13 @@ async function playNext(guildId, lastVideoId = null) {
                         }
 
                         return playNext(guildId, config.state.lastPlayedVideoId);
+                    } else {
+                        console.error('❌ Failed to get autoplay song');
+                        config.state.isPlaying = false;
                     }
                 }, autoplayDelay);
             });
-            
+                        
             player.on('error', error => {
                 console.error('❌ Audio player error:', error);
 
