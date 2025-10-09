@@ -227,7 +227,13 @@ async function playNext(guildId, lastVideoId = null) {
         console.log('⚠️ Already processing next song for this guild, skipping...');
         return;
     }
-    
+
+    // Check if the current player is still playing
+    if (config.state.currentPlayer && config.state.currentPlayer.state.status === AudioPlayerStatus.Playing) {
+        console.log('⏳ Player is still playing, waiting for it to finish...');
+        return;
+    }
+
     processingGuilds.add(guildId);
     
     try {
