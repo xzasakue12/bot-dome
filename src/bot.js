@@ -21,14 +21,11 @@ if (youtubeApiKey) {
     console.warn('⚠️ YOUTUBE_API_KEY not found. Some features may be unavailable.');
 }
 
-// ตรวจสอบไฟล์ cookies.txt หรือ youtube_cookies.txt
+
+// ตรวจสอบไฟล์ cookies.txt หรือ youtube_cookies.txt เฉพาะ Secret Files ของ Render
 const possibleCookiesPaths = [
-    path.join('/etc/secrets/youtube_cookies.txt'),  // Render secret files (youtube_cookies.txt)
-    path.join('/etc/secrets/cookies.txt'),          // Render secret files (cookies.txt)
-    path.join(__dirname, '../youtube_cookies.txt'), // Root directory (youtube_cookies.txt)
-    path.join(__dirname, '../cookies.txt'),         // Root directory (cookies.txt)
-    path.join(__dirname, 'youtube_cookies.txt'),    // src directory (youtube_cookies.txt)
-    path.join(__dirname, 'cookies.txt')             // src directory (cookies.txt)
+    '/etc/secrets/youtube_cookies.txt',
+    '/etc/secrets/cookies.txt'
 ];
 
 let cookiesPath = null;
