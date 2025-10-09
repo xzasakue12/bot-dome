@@ -246,6 +246,29 @@ async function playNext(guildId, lastVideoId = null) {
             return playNext(guildId, lastVideoId);
         }
 
+        // Ensure autoplay only starts after confirming the current song has finished properly
+        if (config.queue.length === 0 && config.settings.autoplayEnabled) {
+            console.log('🔄 Queue is empty. Autoplay is enabled. Waiting before autoplay...');
+
+            if (config.state.currentSong && config.state.currentSong.hasStartedPlaying) {
+                console.log('✅ Current song finished properly. Starting autoplay...');
+                const nextUrl = await getRandomYouTubeVideo();
+
+                if (nextUrl) {
+                    config.queue.push({
+                        cleanUrl: nextUrl,
+                        voiceChannel: config.state.currentSong.voiceChannel,
+                        textChannel: config.state.lastTextChannel,
+                        message: { reply: () => {} },
+                        title: 'Autoplay Song'
+                    });
+                    return playNext(guildId, nextUrl);
+                }
+            } else {
+                console.warn('⚠️ Autoplay delayed due to incomplete song playback.');
+            }
+        }
+
         // ยกเลิก timeout ทั้งหมดก่อน
         if (config.state.leaveTimeout) {
             clearTimeout(config.state.leaveTimeout);
