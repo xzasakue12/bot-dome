@@ -24,6 +24,18 @@ const RECONNECT_DELAY = 3000;
 
 const invalidCookiesPaths = new Set();
 
+function markCookiesPathInvalid(p) {
+    if (!p) return;
+    invalidCookiesPaths.add(p);
+    const idx = cookiesPaths.indexOf(p);
+    if (idx !== -1) {
+        cookiesPaths.splice(idx, 1);
+    }
+    if (config.cookiesPath === p) {
+        config.cookiesPath = null;
+    }
+}
+
 // Lock mechanism
 const processingGuilds = new Set();
 
@@ -114,15 +126,11 @@ async function initializePlayer() {
             const isValid = await validateCookies(cookiesPath);
             if (!isValid) {
                 console.warn('⚠️ Cookies validation failed. Continuing without cookie authentication.');
-                invalidCookiesPaths.add(cookiesPath);
-                config.cookiesPath = null;
+                markCookiesPathInvalid(cookiesPath);
             }
         } catch (error) {
             console.error('❌ Cookies validation error:', error);
-            if (cookiesPath) {
-                invalidCookiesPaths.add(cookiesPath);
-            }
-            config.cookiesPath = null;
+            markCookiesPathInvalid(cookiesPath);
         }
     })();
 
@@ -273,6 +281,9 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                     output.includes('bot detection')) {
                     console.error('🤖 YouTube bot detection triggered!');
                     console.error('💡 Your cookies.txt may be missing, invalid, or expired');
+                    if (cookiesPath) {
+                        markCookiesPathInvalid(cookiesPath);
+                    }
                 }
             });
 
@@ -301,6 +312,9 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 
                 if (ytdlpBytesReceived === 0) {
                     console.error('❌ yt-dlp sent NO DATA - likely failed to fetch video');
+                    if (code !== 0 && cookiesPath) {
+                        markCookiesPathInvalid(cookiesPath);
+                    }
                 } else if (bytesPercent < 50) {
                     console.warn(`⚠️ yt-dlp sent only ${bytesPercent.toFixed(1)}% of expected data`);
                 }
