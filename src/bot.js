@@ -11,6 +11,11 @@ const fs = require('fs');
 const path = require('path');
 const { getYoutubeApiKey } = require('./utils/helpers');
 
+// อ่าน YT_COOKIE จาก Environment Variables (ถ้ามี)
+if (process.env.YT_COOKIE) {
+    config.ytCookie = process.env.YT_COOKIE;
+    console.log('🔑 Loaded YT_COOKIE from environment variable');
+}
 
 
 const youtubeApiKey = getYoutubeApiKey();
