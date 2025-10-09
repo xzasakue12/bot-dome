@@ -1,4 +1,7 @@
-const dotenv = require('dotenv');
+// โหลด dotenv เฉพาะตอน local dev
+if (process.env.NODE_ENV !== 'production') {
+    require('dotenv').config();
+}
 const { Client, GatewayIntentBits } = require('discord.js');
 const config = require('./config');
 const { setClient, initializePlayer } = require('./handlers/player');
@@ -8,9 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { getYoutubeApiKey } = require('./utils/helpers');
 
-// โหลด .env
-dotenv.config({ path: '/etc/secrets/.env' }); // สำหรับ Render
-dotenv.config(); // สำหรับเครื่อง local
+
 
 const youtubeApiKey = getYoutubeApiKey();
 if (youtubeApiKey) {
