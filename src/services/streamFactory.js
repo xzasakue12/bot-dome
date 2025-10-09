@@ -8,12 +8,17 @@ const buildFfmpegArgs = require('../utils/buildFfmpegArgs');
 const { refreshSpotifyTokenIfNeeded, ensureSoundcloudToken } = require('../utils/playDlToken');
 
 function mapPlayStreamType(type) {
+    const playStreamType = (play && play.StreamType) || {};
+
     switch (type) {
-        case play.StreamType.Opus:
+        case playStreamType.Opus:
+        case 'opus':
             return StreamType.Opus;
-        case play.StreamType.OggOpus:
+        case playStreamType.OggOpus:
+        case 'ogg_opus':
             return StreamType.OggOpus;
-        case play.StreamType.WebmOpus:
+        case playStreamType.WebmOpus:
+        case 'webm_opus':
             return StreamType.WebmOpus;
         default:
             return StreamType.Arbitrary;
