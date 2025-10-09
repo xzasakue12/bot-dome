@@ -49,5 +49,7 @@ module.exports = {
     // Audio settings
     audioSettings: {
         bassGain: 10 // Default bass gain in dB
-    }
+    },
+
+    youtubeApiKey: null
 };

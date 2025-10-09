@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 
 /**
@@ -38,9 +39,55 @@ function formatDuration(seconds) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+let cachedYoutubeApiKey;
+
+function readSecretFile(filePath) {
+    try {
+        if (fs.existsSync(filePath)) {
+            const value = fs.readFileSync(filePath, 'utf8').trim();
+            if (value) {
+                return value;
+            }
+        }
+    } catch (error) {
+        console.error(`❌ Failed to read secret from ${filePath}:`, error);
+    }
+    return null;
+}
+
+function getYoutubeApiKey() {
+    if (cachedYoutubeApiKey !== undefined) {
+        return cachedYoutubeApiKey;
+    }
+
+    const envValue = process.env.YOUTUBE_API_KEY;
+    if (envValue && envValue.trim()) {
+        cachedYoutubeApiKey = envValue.trim();
+        return cachedYoutubeApiKey;
+    }
+
+    const candidates = [
+        '/etc/secrets/YOUTUBE_API_KEY',
+        path.resolve(__dirname, '..', '..', 'YOUTUBE_API_KEY'),
+        path.resolve(__dirname, 'YOUTUBE_API_KEY')
+    ];
+
+    for (const candidate of candidates) {
+        const value = readSecretFile(candidate);
+        if (value) {
+            cachedYoutubeApiKey = value;
+            return cachedYoutubeApiKey;
+        }
+    }
+
+    cachedYoutubeApiKey = null;
+    return cachedYoutubeApiKey;
+}
+
 module.exports = {
     getYtDlpPath,
     checkVoiceChannelEmpty,
     truncateString,
-    formatDuration
+    formatDuration,
+    getYoutubeApiKey
 };

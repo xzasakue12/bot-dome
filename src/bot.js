@@ -6,10 +6,19 @@ const { handleVoiceStateUpdate } = require('./handlers/voiceState');
 const { loadCommands, handleCommand } = require('./handlers/commandHandler');
 const fs = require('fs');
 const path = require('path');
+const { getYoutubeApiKey } = require('./utils/helpers');
 
 // โหลด .env
 dotenv.config({ path: '/etc/secrets/.env' }); // สำหรับ Render
 dotenv.config(); // สำหรับเครื่อง local
+
+const youtubeApiKey = getYoutubeApiKey();
+if (youtubeApiKey) {
+    config.youtubeApiKey = youtubeApiKey;
+    console.log('🔑 Loaded YOUTUBE_API_KEY');
+} else {
+    console.warn('⚠️ YOUTUBE_API_KEY not found. Some features may be unavailable.');
+}
 
 // ตรวจสอบไฟล์ cookies.txt หรือ youtube_cookies.txt
 const possibleCookiesPaths = [
