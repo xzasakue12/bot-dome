@@ -137,13 +137,14 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                     '--dump-single-json',
                     '--no-warnings',
                     '--socket-timeout', '10',  // ⭐ เพิ่ม timeout
-                    '--no-check-certificate',   // ⭐ เพิ่ม
-                    cleanUrl
+                    '--no-check-certificate'   // ⭐ เพิ่ม
                 ];
                 
                 if (cookiesPath) {
                     metadataArgs.push('--cookies', cookiesPath);
                 }
+                
+                metadataArgs.push(cleanUrl);
                 
                 const metadataProcess = spawn(getYtDlpPath(), metadataArgs, {
                     shell: false,
@@ -566,6 +567,10 @@ async function playNext(guildId, lastVideoId = null) {
             player.once(AudioPlayerStatus.Playing, () => {
                 hasStartedPlaying = true;
                 playStartTime = Date.now();
+                if (config.state.currentSong) {
+                    config.state.currentSong.hasStartedPlaying = true;
+                    config.state.currentSong.startedAt = playStartTime;
+                }
                 console.log('🎶 Now playing:', title || cleanUrl);
                 console.log(`   Started at: ${new Date().toISOString()}`);
                 if (message && message.channel) {
@@ -617,6 +622,10 @@ async function playNext(guildId, lastVideoId = null) {
                 
                 const playDuration = playStartTime ? Date.now() - playStartTime : 0;
                 const durationStr = playDuration > 0 ? `${Math.round(playDuration / 1000)}s` : 'unknown';
+                if (config.state.currentSong) {
+                    config.state.currentSong.playDuration = playDuration;
+                    config.state.currentSong.hasStartedPlaying = config.state.currentSong.hasStartedPlaying || hasStartedPlaying;
+                }
                 
                 console.log(`⏹️ Player idle after ${durationStr}, checking next action...`);
                 console.log(`   hasStartedPlaying: ${hasStartedPlaying}, playDuration: ${playDuration}ms`);
