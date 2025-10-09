@@ -114,33 +114,8 @@ async function validateCookies(cookiesPath) {
     });
 }
 
-let cookiesValidationPromise = null;
-
 async function initializePlayer() {
-    if (cookiesValidationPromise) {
-        return cookiesValidationPromise;
-    }
-
-    const cookiesPath = config.cookiesPath;
-    if (!cookiesPath) {
-        cookiesValidationPromise = Promise.resolve();
-        return cookiesValidationPromise;
-    }
-
-    cookiesValidationPromise = (async () => {
-        try {
-            const isValid = await validateCookies(cookiesPath);
-            if (!isValid) {
-                console.warn('⚠️ Cookies validation failed. Continuing without cookie authentication.');
-                markCookiesPathInvalid(cookiesPath);
-            }
-        } catch (error) {
-            console.error('❌ Cookies validation error:', error);
-            markCookiesPathInvalid(cookiesPath);
-        }
-    })();
-
-    return cookiesValidationPromise;
+    return;
 }
 
 async function playWithYtDlp(cleanUrl, message, connection) {
