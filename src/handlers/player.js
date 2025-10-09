@@ -60,6 +60,48 @@ async function createVoiceConnection(voiceChannel, guildId) {
     }
 }
 
+// ก่อนเริ่มบอท
+async function validateCookies(cookiesPath) {
+    const testUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+    const { spawn } = require('child_process');
+    
+    return new Promise((resolve) => {
+        const test = spawn(getYtDlpPath(), [
+            '--cookies', cookiesPath,
+            '--dump-single-json',
+            '--no-warnings',
+            testUrl
+        ]);
+        
+        let output = '';
+        test.stdout.on('data', d => output += d);
+        test.stderr.on('data', d => {
+            if (d.toString().includes('Sign in')) {
+                console.error('❌ Cookies expired! Please update cookies.txt');
+                resolve(false);
+            }
+        });
+        
+        test.on('close', (code) => {
+            if (code === 0 && output) {
+                console.log('✅ Cookies are valid');
+                resolve(true);
+            } else {
+                resolve(false);
+            }
+        });
+    });
+}
+
+// เรียกใช้ตอนเริ่มบอท
+if (cookiesPath) {
+    const isValid = await validateCookies(cookiesPath);
+    if (!isValid) {
+        console.error('🚨 Bot cannot start - invalid cookies!');
+        process.exit(1);
+    }
+}
+
 async function playWithYtDlp(cleanUrl, message, connection) {
     return new Promise(async (resolve, reject) => {  // ⭐ เพิ่ม async
         let ytdlpProcess;
@@ -813,6 +855,8 @@ async function playNext(guildId, lastVideoId = null) {
         throw error;
     }
 }
+
+
 
 module.exports = {
     setClient,
