@@ -5,7 +5,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const buildFfmpegArgs = require('../utils/buildFfmpegArgs');
-const { refreshSpotifyTokenIfNeeded } = require('../utils/playDlToken');
+const { refreshSpotifyTokenIfNeeded, ensureSoundcloudToken } = require('../utils/playDlToken');
 
 function mapPlayStreamType(type) {
     switch (type) {
@@ -21,6 +21,9 @@ function mapPlayStreamType(type) {
 }
 
 async function createResourceWithPlayDl(track) {
+    if (track && track.sourceType === 'soundcloud') {
+        await ensureSoundcloudToken();
+    }
     await refreshSpotifyTokenIfNeeded();
 
     const streamInfo = await play.stream(track.cleanUrl, { discordPlayerCompatibility: true });

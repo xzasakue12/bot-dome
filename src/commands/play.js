@@ -6,7 +6,7 @@ const config = require('../config');
 const { getYtDlpPath } = require('../utils/helpers');
 const extractVideoId = require('../utils/extractVideoId');
 const fetch = require('node-fetch');
-const { refreshSpotifyTokenIfNeeded } = require('../utils/playDlToken');
+const { refreshSpotifyTokenIfNeeded, ensureSoundcloudToken } = require('../utils/playDlToken');
 
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.flac', '.wav', '.aac', '.m4a', '.ogg', '.opus']);
 
@@ -197,6 +197,7 @@ async function fetchSoundCloudMetadata(url) {
     let durationMs = null;
 
     try {
+        await ensureSoundcloudToken();
         await refreshSpotifyTokenIfNeeded();
 
         const info = await play.soundcloud(url);
