@@ -185,17 +185,9 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             ffmpegProcess.stderr.on('data', (data) => {
                 const errorMsg = data.toString();
+                console.error('FFmpeg stderr:', errorMsg);
                 if (errorMsg.includes('error') || errorMsg.includes('failed')) {
-                    console.error('FFmpeg error:', errorMsg);
-                }
-            });
-
-            ffmpegProcess.on('error', (err) => {
-                if (!isResolved) {
-                    console.error('❌ FFmpeg process error:', err);
-                    cleanupProcesses(ytdlpProcess, ffmpegProcess);
-                    isResolved = true;
-                    reject(err);
+                    console.error('FFmpeg critical error detected:', errorMsg);
                 }
             });
 
@@ -203,6 +195,11 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 if (code !== 0 && code !== null) {
                     console.error(`FFmpeg exited with code: ${code}`);
                 }
+                cleanupProcesses(ytdlpProcess, ffmpegProcess);
+            });
+
+            ffmpegProcess.on('error', (err) => {
+                console.error('FFmpeg process error:', err);
                 cleanupProcesses(ytdlpProcess, ffmpegProcess);
             });
 

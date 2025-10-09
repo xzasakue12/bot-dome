@@ -5,7 +5,7 @@ function buildFfmpegArgs() {
         '-af', 'bass=g=10',
         '-b:a', '64k',
         '-f', 'opus',
-        '-hide_banner', '-loglevel', 'error',
+        '-hide_banner', '-loglevel', 'info', // Changed loglevel to 'info' for detailed logs
         'pipe:1'
     ];
     return args;
