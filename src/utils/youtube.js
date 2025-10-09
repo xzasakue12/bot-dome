@@ -4,9 +4,6 @@ const fs = require('fs');
 const config = require('../config');
 const { getYtDlpPath } = require('./helpers');
 
-/**
- * หา cookies path
- */
 function getCookiesPath() {
     const cookiesPaths = [
         path.join(__dirname, '../../youtube_cookies.txt'),
@@ -28,28 +25,42 @@ function getCookiesPath() {
     return null;
 }
 
-/**
- * ค้นหาวิดีโอด้วย yt-dlp
- */
+function buildYtDlpArgs(query, limit, cookiesPath) {
+    const args = [];
+    if (cookiesPath) {
+        args.push('--cookies', cookiesPath);
+    }
+    args.push(
+        `ytsearch${limit}:${query}`,
+        '--get-id',
+        '--get-title',
+        '--no-warnings',
+        '--quiet'
+    );
+    return args;
+}
+
+function parseYtDlpOutput(output) {
+    const lines = output.trim().split('\n');
+    const results = [];
+    for (let i = 0; i < lines.length; i += 2) {
+        if (lines[i] && lines[i + 1]) {
+            results.push({
+                title: lines[i],
+                url: `https://www.youtube.com/watch?v=${lines[i + 1]}`,
+                videoId: lines[i + 1]
+            });
+        }
+    }
+    return results;
+}
+
 async function searchYouTubeYtDlp(query, limit = 5) {
     return new Promise((resolve) => {
         try {
             const ytDlpPath = getYtDlpPath();
             const cookiesPath = getCookiesPath();
-
-            const args = [];
-
-            if (cookiesPath) {
-                args.push('--cookies', cookiesPath);
-            }
-
-            args.push(
-                `ytsearch${limit}:${query}`,
-                '--get-id',
-                '--get-title',
-                '--no-warnings',
-                '--quiet'
-            );
+            const args = buildYtDlpArgs(query, limit, cookiesPath);
 
             const ytdlpProcess = spawn(ytDlpPath, args);
 
@@ -60,20 +71,7 @@ async function searchYouTubeYtDlp(query, limit = 5) {
 
             ytdlpProcess.on('close', (code) => {
                 if (code === 0 && output.trim()) {
-                    const lines = output.trim().split('\n');
-                    const results = [];
-
-                    for (let i = 0; i < lines.length; i += 2) {
-                        if (lines[i] && lines[i + 1]) {
-                            results.push({
-                                title: lines[i],
-                                url: `https://www.youtube.com/watch?v=${lines[i + 1]}`,
-                                videoId: lines[i + 1]
-                            });
-                        }
-                    }
-
-                    resolve(results);
+                    resolve(parseYtDlpOutput(output));
                 } else {
                     console.warn('⚠️ No results found for query:', query);
                     resolve([]);
@@ -91,19 +89,16 @@ async function searchYouTubeYtDlp(query, limit = 5) {
     });
 }
 
-/**
- * สุ่มเพลงจาก YouTube
- */
 async function getRandomYouTubeVideo() {
     try {
         const randomQuery = config.autoplayQueries[
             Math.floor(Math.random() * config.autoplayQueries.length)
         ];
-        
+
         console.log(`🔍 Searching YouTube for: ${randomQuery}`);
-        
+
         const searchResult = await searchYouTubeYtDlp(randomQuery, 20);
-        
+
         if (searchResult && searchResult.length > 0) {
             const randomIndex = Math.floor(Math.random() * searchResult.length);
             const video = searchResult[randomIndex];
@@ -116,16 +111,10 @@ async function getRandomYouTubeVideo() {
     return null;
 }
 
-/**
- * ค้นหาเพลงจาก YouTube
- */
 async function searchYouTube(query, limit = 5) {
     return await searchYouTubeYtDlp(query, limit);
 }
 
-/**
- * ดึงข้อมูลวิดีโอ
- */
 async function getVideoInfo(url) {
     return new Promise((resolve) => {
         try {
@@ -133,11 +122,9 @@ async function getVideoInfo(url) {
             const cookiesPath = getCookiesPath();
 
             const args = [];
-
             if (cookiesPath) {
                 args.push('--cookies', cookiesPath);
             }
-
             args.push(
                 '--get-title',
                 '--get-duration',

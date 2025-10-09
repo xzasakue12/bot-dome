@@ -30,20 +30,17 @@ function loadCommands() {
 async function handleCommand(message, prefix, commands) {
     // ไม่ตอบสนองต่อข้อความจากบอท
     if (message.author.bot) return;
-    
     // ตรวจสอบว่าข้อความขึ้นต้นด้วย prefix หรือไม่
     if (!message.content.startsWith(prefix)) return;
 
     // แยกคำสั่งและ arguments
-    const args = message.content.slice(prefix.length).trim().split(/\s+/);
+    const args = parseCommandArguments(message.content, prefix);
     const commandName = args.shift().toLowerCase();
 
     // ค้นหาคำสั่ง
     const command = commands.get(commandName);
 
-    if (!command) {
-        return; // ไม่ตอบสนองถ้าไม่พบคำสั่ง
-    }
+    if (!command) return;
 
     try {
         // รันคำสั่ง
@@ -52,6 +49,13 @@ async function handleCommand(message, prefix, commands) {
         console.error(`Error executing command ${commandName}:`, error);
         message.reply('❌ เกิดข้อผิดพลาดในการรันคำสั่ง!').catch(console.error);
     }
+}
+
+/**
+ * แยก arguments จากข้อความคำสั่ง
+ */
+function parseCommandArguments(content, prefix) {
+    return content.slice(prefix.length).trim().split(/\s+/);
 }
 
 module.exports = {

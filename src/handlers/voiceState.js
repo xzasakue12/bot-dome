@@ -1,5 +1,5 @@
 const config = require('../config');
-const { checkAndLeaveIfEmpty } = require('./player');
+const { checkAndLeaveIfEmpty } = require('../services/voiceChannelManager');
 
 /**
  * จัดการเหตุการณ์เมื่อมีคนออกจากห้องเสียง

@@ -1,24 +1,7 @@
 const { spawn } = require('child_process');
 const config = require('../config');
 const { getYtDlpPath } = require('../utils/helpers');
-
-/**
- * ดึง Video ID จาก YouTube URL
- */
-function extractVideoId(url) {
-    try {
-        const urlObj = new URL(url);
-        if (urlObj.hostname.includes('youtube.com')) {
-            return urlObj.searchParams.get('v');
-        }
-        if (urlObj.hostname.includes('youtu.be')) {
-            return urlObj.pathname.slice(1);
-        }
-        return null;
-    } catch (e) {
-        return null;
-    }
-}
+const extractVideoId = require('../utils/extractVideoId');
 
 /**
  * ดึงข้อมูลวิดีโอด้วย yt-dlp
