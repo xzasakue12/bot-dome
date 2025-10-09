@@ -578,16 +578,16 @@ async function playNext(guildId, lastVideoId = null) {
                 }
             }, 100);
             
-            setTimeout(() => {
-                if (!streamReady) {
-                    streamReady = true;
-                    clearInterval(checkInterval);
-                    console.warn('⚠️ Stream timeout, starting playback anyway');
-                    player.play(resource);
-                }
-            }, 5000);
+                setTimeout(() => {
+                    if (!streamReady) {
+                        streamReady = true;
+                        clearInterval(checkInterval);
+                        console.warn('⚠️ Stream timeout, starting playback anyway');
+                        player.play(resource);
+                    }
+                }, 5000);
 
-           player.on(AudioPlayerStatus.Idle, () => {
+            player.on(AudioPlayerStatus.Idle, () => {
                 // ยกเลิก autoplay timeout ทันทีเมื่อเพลงจบ
                 if (global.nextTimeout) {
                     clearTimeout(global.nextTimeout);
@@ -681,6 +681,9 @@ async function playNext(guildId, lastVideoId = null) {
                 console.log('🔄 Queue is empty. Autoplay is enabled. Waiting before autoplay...');
                 processingGuilds.delete(guildId);
                 
+                const autoplayDelay = config.settings.autoplayDelay || 5000;
+                console.log(`⏰ Autoplay will start in ${autoplayDelay}ms (${Math.round(autoplayDelay/1000)}s)`);
+                
                 global.nextTimeout = setTimeout(async () => {
                     if (config.queue.length > 0) {
                         console.log('⚠️ Queue has songs now, canceling autoplay');
@@ -710,9 +713,9 @@ async function playNext(guildId, lastVideoId = null) {
 
                         return playNext(guildId, config.state.lastPlayedVideoId);
                     }
-                }, config.settings.autoplayDelay);
+                }, autoplayDelay);
             });
-
+            
             player.on('error', error => {
                 console.error('❌ Audio player error:', error);
 
