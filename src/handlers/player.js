@@ -88,12 +88,14 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 warnOnce('no-cookies', '⚠️ No cookies.txt found - YouTube may block requests');
             }
 
-            // ⭐⭐⭐ รอ metadata ให้เสร็จก่อน ⭐⭐⭐
+                    // ⭐⭐⭐ รอ metadata ให้เสร็จก่อน ⭐⭐⭐
             console.log('📊 Fetching video metadata...');
             expectedDuration = await new Promise((resolveMetadata) => {
                 const metadataArgs = [
                     '--dump-single-json',
                     '--no-warnings',
+                    '--socket-timeout', '10',  // ⭐ เพิ่ม timeout
+                    '--no-check-certificate',   // ⭐ เพิ่ม
                     cleanUrl
                 ];
                 
@@ -103,15 +105,29 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 
                 const metadataProcess = spawn(getYtDlpPath(), metadataArgs, {
                     shell: false,
-                    stdio: ['ignore', 'pipe', 'pipe']
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    timeout: 8000  // ⭐ เพิ่ม process timeout
                 });
                 
                 let metadataJson = '';
+                let hasResolved = false;  // ⭐ เพิ่ม flag
+                
                 metadataProcess.stdout.on('data', (data) => {
                     metadataJson += data.toString();
                 });
                 
+                // ⭐ เพิ่ม stderr debug
+                metadataProcess.stderr.on('data', (data) => {
+                    const err = data.toString();
+                    if (err.includes('ERROR')) {
+                        console.error('⚠️ Metadata error:', err.trim());
+                    }
+                });
+                
                 metadataProcess.on('close', (code) => {
+                    if (hasResolved) return;  // ⭐ ป้องกัน double resolve
+                    hasResolved = true;
+                    
                     if (code === 0 && metadataJson) {
                         try {
                             const metadata = JSON.parse(metadataJson);
@@ -119,32 +135,39 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                             console.log(`📊 Duration from metadata: ${duration}ms (${Math.round(duration/1000)}s)`);
                             resolveMetadata(duration);
                         } catch (e) {
-                            console.warn('⚠️ Failed to parse metadata, using default duration');
+                            console.warn('⚠️ Failed to parse metadata:', e.message);
                             resolveMetadata(300000);
                         }
                     } else {
-                        console.warn('⚠️ Failed to fetch metadata, using default duration');
+                        console.warn(`⚠️ Metadata fetch failed (code ${code}), using default`);
                         resolveMetadata(300000);
                     }
                 });
                 
                 metadataProcess.on('error', (err) => {
-                    console.error('⚠️ Metadata fetch error:', err);
+                    if (hasResolved) return;
+                    hasResolved = true;
+                    console.error('⚠️ Metadata process error:', err.message);
                     resolveMetadata(300000);
                 });
                 
-                // Timeout 5 วินาที
+                // ⭐ ลด timeout เหลือ 3 วินาที
                 setTimeout(() => {
+                    if (hasResolved) return;
+                    hasResolved = true;
+                    console.warn('⚠️ Metadata timeout (3s), using default duration');
                     try {
-                        metadataProcess.kill();
-                    } catch (e) {}
+                        metadataProcess.kill('SIGKILL');  // ⭐ force kill
+                    } catch (e) {
+                        console.error('Kill error:', e.message);
+                    }
                     resolveMetadata(300000);
-                }, 5000);
+                }, 3000);  // ⭐ ลดจาก 5000 เป็น 3000
             });
 
             console.log(`✅ Got duration: ${expectedDuration}ms, starting stream...`);
 
-            // ⭐ ตอนนี้ expectedDuration มีค่าแน่นอนแล้ว!
+                        // ⭐ ตอนนี้ expectedDuration มีค่าแน่นอนแล้ว!
             console.log('🔧 yt-dlp command:', getYtDlpPath(), ytdlpArgs.slice(0, 5).join(' '), '...');
 
             ytdlpProcess = spawn(getYtDlpPath(), ytdlpArgs, {
