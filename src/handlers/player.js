@@ -22,6 +22,8 @@ const RETRY_DELAY = 2000;
 const CONNECTION_TIMEOUT = 20000;
 const RECONNECT_DELAY = 3000;
 
+const invalidCookiesPaths = new Set();
+
 // Lock mechanism
 const processingGuilds = new Set();
 
@@ -108,9 +110,19 @@ async function initializePlayer() {
     }
 
     cookiesValidationPromise = (async () => {
-        const isValid = await validateCookies(cookiesPath);
-        if (!isValid) {
-            throw new Error('🚨 Bot cannot start - invalid cookies!');
+        try {
+            const isValid = await validateCookies(cookiesPath);
+            if (!isValid) {
+                console.warn('⚠️ Cookies validation failed. Continuing without cookie authentication.');
+                invalidCookiesPaths.add(cookiesPath);
+                config.cookiesPath = null;
+            }
+        } catch (error) {
+            console.error('❌ Cookies validation error:', error);
+            if (cookiesPath) {
+                invalidCookiesPaths.add(cookiesPath);
+            }
+            config.cookiesPath = null;
         }
     })();
 
@@ -132,9 +144,10 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             logOnce('yt-dlp-start', `🎵 Starting yt-dlp stream for: ${cleanUrl}`);
 
             let cookiesPath = null;
-            const candidatePaths = config.cookiesPath ? [config.cookiesPath, ...cookiesPaths] : cookiesPaths;
-            for (const p of candidatePaths) {
-                if (p && fs.existsSync(p)) {
+            const baseCandidates = config.cookiesPath ? [config.cookiesPath, ...cookiesPaths] : cookiesPaths;
+            for (const p of baseCandidates) {
+                if (!p || invalidCookiesPaths.has(p)) continue;
+                if (fs.existsSync(p)) {
                     cookiesPath = p;
                     break;
                 }
