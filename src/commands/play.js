@@ -125,6 +125,29 @@ function detectSource(rawInput) {
             return { type: 'soundcloud', url: parsed.toString() };
         }
 
+        if (host.includes('spotify.com')) {
+            const segments = parsed.pathname.split('/').filter(Boolean);
+            const spotifyTypes = new Set(['track', 'album', 'playlist']);
+            let spotifyType = null;
+            let spotifyId = null;
+
+            for (let i = 0; i < segments.length; i++) {
+                const segment = segments[i].toLowerCase();
+                if (spotifyTypes.has(segment)) {
+                    spotifyType = segment;
+                    spotifyId = segments[i + 1] ? segments[i + 1].split('?')[0] : null;
+                    break;
+                }
+            }
+
+            return {
+                type: 'spotify',
+                url: parsed.toString(),
+                spotifyType: spotifyType || null,
+                spotifyId: spotifyId || null
+            };
+        }
+
         const ext = path.extname(parsed.pathname).toLowerCase();
         if (AUDIO_EXTENSIONS.has(ext)) {
             return { type: 'http-audio', url: parsed.toString() };
@@ -214,6 +237,32 @@ async function fetchSoundCloudMetadata(url) {
     return { title, url, durationMs };
 }
 
+async function fetchSpotifyMetadata(url, spotifyType) {
+    try {
+        const oembedUrl = `https://open.spotify.com/oembed?url=${encodeURIComponent(url)}`;
+        const res = await fetch(oembedUrl);
+        if (!res.ok) {
+            throw new Error(`Spotify oEmbed request failed with status ${res.status}`);
+        }
+
+        const data = await res.json();
+        const title = data.title || url;
+        const author = data.author_name || '';
+        const searchQuery = [title, author].filter(Boolean).join(' ');
+
+        return {
+            title,
+            author,
+            searchQuery,
+            thumbnail: data.thumbnail_url || null,
+            type: spotifyType || null
+        };
+    } catch (error) {
+        console.warn('⚠️ Spotify metadata failed:', error.message || error);
+        return null;
+    }
+}
+
 async function resolveTrack(input) {
     const source = detectSource(input);
     if (!source || source.type === 'unknown') {
@@ -239,6 +288,45 @@ async function resolveTrack(input) {
                 streamData: null,
                 durationMs: metadata.durationMs || null,
                 videoId: null
+            };
+        }
+        case 'spotify': {
+            const metadata = await fetchSpotifyMetadata(source.url, source.spotifyType);
+            if (!metadata || !metadata.searchQuery) {
+                return null;
+            }
+
+            let searchResults = [];
+            try {
+                searchResults = await play.search(metadata.searchQuery, {
+                    limit: 1,
+                    source: { youtube: 'video' }
+                });
+            } catch (error) {
+                console.warn('⚠️ Spotify → YouTube search failed:', error.message || error);
+            }
+
+            if (!searchResults || !searchResults.length) {
+                return null;
+            }
+
+            const bestMatch = searchResults[0];
+            const youtubeUrl = bestMatch.url;
+            const youtubeMetadata = await fetchYouTubeMetadata(youtubeUrl, bestMatch.id);
+
+            return {
+                ...youtubeMetadata,
+                title: youtubeMetadata.title || metadata.title,
+                url: youtubeUrl,
+                sourceType: 'youtube',
+                streamData: null,
+                durationMs: youtubeMetadata.durationMs || null,
+                videoId: bestMatch.id || null,
+                originalSource: {
+                    type: 'spotify',
+                    url: source.url,
+                    searchQuery: metadata.searchQuery
+                }
             };
         }
         case 'http-audio':
