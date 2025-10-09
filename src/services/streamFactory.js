@@ -25,13 +25,17 @@ function mapPlayStreamType(type) {
     }
 }
 
-async function createResourceWithPlayDl(track) {
+async function createResourceWithPlayDl(track, options = {}) {
+    const {
+        discordPlayerCompatibility = true
+    } = options;
+
     if (track && track.sourceType === 'soundcloud') {
         await ensureSoundcloudToken();
     }
     await refreshSpotifyTokenIfNeeded();
 
-    const streamInfo = await play.stream(track.cleanUrl, { discordPlayerCompatibility: true });
+    const streamInfo = await play.stream(track.cleanUrl, { discordPlayerCompatibility });
     const audioStream = streamInfo.stream;
     let hasData = false;
 
@@ -203,5 +207,6 @@ async function createResourceForTrack(track, options = {}) {
 }
 
 module.exports = {
-    createResourceForTrack
+    createResourceForTrack,
+    createResourceWithPlayDl
 };

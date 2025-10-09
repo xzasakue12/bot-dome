@@ -9,7 +9,7 @@ const { logOnce, warnOnce, errorOnce } = require('../utils/logger');
 const { cleanupProcesses } = require('../services/resourceManager');
 const { setupConnectionHandlers } = require('../services/connectionManager');
 const { checkAndLeaveIfEmpty } = require('../services/voiceChannelManager');
-const { createResourceForTrack } = require('../services/streamFactory');
+const { createResourceForTrack, createResourceWithPlayDl } = require('../services/streamFactory');
 const extractVideoId = require('../utils/extractVideoId');
 const buildYtDlpArgs = require('../utils/buildYtDlpArgs');
 const buildFfmpegArgs = require('../utils/buildFfmpegArgs');
@@ -600,29 +600,45 @@ async function playNext(guildId, lastVideoId = null) {
                     fallback: async () => playWithYtDlp(cleanUrl, message, connection)
                 });
             } catch (error) {
+                let finalError = error;
                 console.error('❌ Failed to play:', error);
-                if (message && message.channel) {
-                    let userMessage = '❌ ไม่สามารถเล่นเพลงนี้ได้';
 
-                    if (sourceType === 'local' && (error.code === 'LOCAL_FILE_MISSING' || error.code === 'ENOENT')) {
-                        userMessage = '❌ ไม่พบไฟล์เพลงบนเครื่องนี้';
-                    } else if (sourceType === 'http-audio') {
-                        userMessage = '❌ ไม่สามารถสตรีมไฟล์เสียงนี้ได้';
-                    } else if (error && error.code === 'YTDLP_BOT_DETECTION') {
-                        userMessage = '❌ YouTube ต้องการการยืนยันเพิ่มเติม กรุณาอัปโหลด cookies.txt ใหม่ใน Render แล้วลองอีกครั้ง.';
-                    } else if (error && (error.code === 'YTDLP_NO_DATA' || error.code === 'YTDLP_STREAM_TIMEOUT')) {
-                        userMessage = '❌ ไม่สามารถสตรีมเพลงจาก YouTube ได้ (yt-dlp ไม่มีข้อมูล) โปรดตรวจสอบลิงก์หรืออัปเดต cookies.txt.';
-                    } else if (error && error.message) {
-                        userMessage = `❌ ${error.message}`;
+                if (sourceType === 'youtube') {
+                    try {
+                        console.warn('⚠️ Retrying with play-dl after yt-dlp failure...');
+                        resource = await createResourceWithPlayDl(track, {
+                            discordPlayerCompatibility: false
+                        });
+                    } catch (retryError) {
+                        finalError = retryError;
+                        console.error('❌ play-dl retry failed:', retryError);
                     }
-
-                    message.channel.send(userMessage)
-                        .catch(e => console.error('Send error:', e));
                 }
-                config.state.currentSong = null;
-                config.state.isPlaying = false;
-                processingGuilds.delete(guildId);
-                return playNext(guildId, lastVideoId);
+
+                if (!resource) {
+                    if (message && message.channel) {
+                        let userMessage = '❌ ไม่สามารถเล่นเพลงนี้ได้';
+
+                        if (sourceType === 'local' && finalError && (finalError.code === 'LOCAL_FILE_MISSING' || finalError.code === 'ENOENT')) {
+                            userMessage = '❌ ไม่พบไฟล์เพลงบนเครื่องนี้';
+                        } else if (sourceType === 'http-audio') {
+                            userMessage = '❌ ไม่สามารถสตรีมไฟล์เสียงนี้ได้';
+                        } else if (finalError && finalError.code === 'YTDLP_BOT_DETECTION') {
+                            userMessage = '❌ YouTube ต้องการการยืนยันเพิ่มเติม กรุณาอัปโหลด cookies.txt ใหม่ใน Render แล้วลองอีกครั้ง.';
+                        } else if (finalError && (finalError.code === 'YTDLP_NO_DATA' || finalError.code === 'YTDLP_STREAM_TIMEOUT')) {
+                            userMessage = '❌ ไม่สามารถสตรีมเพลงจาก YouTube ได้ (yt-dlp ไม่มีข้อมูล) โปรดตรวจสอบลิงก์หรืออัปเดต cookies.txt.';
+                        } else if (finalError && finalError.message) {
+                            userMessage = `❌ ${finalError.message}`;
+                        }
+
+                        message.channel.send(userMessage)
+                            .catch(e => console.error('Send error:', e));
+                    }
+                    config.state.currentSong = null;
+                    config.state.isPlaying = false;
+                    processingGuilds.delete(guildId);
+                    return playNext(guildId, lastVideoId);
+                }
             }
 
             if (!resource) {
