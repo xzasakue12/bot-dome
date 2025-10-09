@@ -2,26 +2,29 @@
 function buildYtDlpArgs(cleanUrl) {
     const args = [
         // Headers & User Agent
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         '--add-header', 'Accept-Language:en-US,en;q=0.9',
+        '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         
         // Network & Retry Settings
         '--socket-timeout', '30',
         '--retries', '10',
         '--fragment-retries', '10',
-        '--buffer-size', '64K',
+        '--buffer-size', '256K',  // ⭐ เพิ่มจาก 64K เป็น 256K
         
-        // Format Selection - สำคัญมาก!
-        '-f', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
+        // Format Selection - ใช้ง่ายๆ ก่อน
+        '--format', 'bestaudio/best',  // ⭐ ทำให้ง่ายขึ้น
+        '--extract-audio',             // ⭐ บังคับให้ดึงแต่เสียง
         
         // Output Settings
         '--no-playlist',
         '--no-warnings',
         '--ignore-errors',
         '--no-check-certificate',
+        '--prefer-free-formats',  // ⭐ เพิ่ม
         
-        // Print duration info to stderr (ใช้ดึง duration)
-        '--print', 'duration',
+        // ⭐ ใช้ --dump-json แทน --print duration (reliable กว่า)
+        '--print', '%(duration)s',  // แก้จาก 'duration' เป็น '%(duration)s'
         
         // Output to stdout
         '-o', '-',

@@ -65,7 +65,8 @@ async function playWithYtDlp(cleanUrl, message, connection) {
         let ytdlpProcess;
         let ffmpegProcess;
         let isResolved = false;
-        let expectedDuration = null; // ⭐ เพิ่ม
+        let expectedDuration = null;
+        let ytdlpBytesReceived = 0;  // ⭐ เพิ่มตัวนับ bytes
 
         try {
             const ytdlpArgs = buildYtDlpArgs(cleanUrl);
@@ -88,7 +89,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 warnOnce('no-cookies', '⚠️ No cookies.txt found - YouTube may block requests');
             }
 
-            console.log('🔧 yt-dlp command:', getYtDlpPath(), ytdlpArgs.slice(0, 3).join(' '), '...');
+            console.log('🔧 yt-dlp command:', getYtDlpPath(), ytdlpArgs.slice(0, 5).join(' '), '...');
 
             ytdlpProcess = spawn(getYtDlpPath(), ytdlpArgs, {
                 shell: false,
@@ -98,16 +99,32 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             });
 
             let stderrOutput = '';
+            let firstStderrLine = true;
 
-            // ⭐ แก้ไข stderr handler เพื่อดึง duration
+            // ⭐ แก้ไข stderr handler - debug ทุกอย่าง
             ytdlpProcess.stderr.on('data', (data) => {
                 const output = data.toString();
                 stderrOutput += output;
                 
-                // ⭐ ดึง duration จาก --print duration (บรรทัดแรกที่เป็นตัวเลข)
-                if (!expectedDuration && output.trim().match(/^\d+(\.\d+)?$/)) {
-                    expectedDuration = Math.round(parseFloat(output.trim()) * 1000);
-                    console.log(`📊 Expected duration: ${expectedDuration}ms (${Math.round(expectedDuration/1000)}s)`);
+                // ⭐ Debug: แสดง stderr ทุกบรรทัด
+                const lines = output.split('\n').filter(l => l.trim());
+                lines.forEach(line => {
+                    console.log(`📝 [yt-dlp stderr] ${line.trim()}`);
+                });
+                
+                // ⭐ ดึง duration - ต้องเป็นบรรทัดแรกที่เป็นตัวเลข
+                if (!expectedDuration && firstStderrLine) {
+                    const match = output.trim().match(/^(\d+\.?\d*)$/);
+                    if (match) {
+                        expectedDuration = Math.round(parseFloat(match[1]) * 1000);
+                        console.log(`📊 Expected duration: ${expectedDuration}ms (${Math.round(expectedDuration/1000)}s)`);
+                        firstStderrLine = false;
+                    }
+                }
+                
+                // ตรวจสอบ errors
+                if (output.includes('ERROR:') || output.includes('ERROR')) {
+                    console.error('🚨 yt-dlp ERROR:', output.trim());
                 }
                 
                 // ตรวจสอบ bot detection
@@ -116,6 +133,14 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                     output.includes('bot detection')) {
                     console.error('🤖 YouTube bot detection triggered!');
                     console.error('💡 Your cookies.txt may be missing, invalid, or expired');
+                }
+            });
+
+            // ⭐ เพิ่มการตรวจสอบ stdout bytes
+            ytdlpProcess.stdout.on('data', (chunk) => {
+                ytdlpBytesReceived += chunk.length;
+                if (ytdlpBytesReceived === chunk.length) {
+                    console.log('✅ yt-dlp started sending audio data');
                 }
             });
 
@@ -129,9 +154,16 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             });
 
             ytdlpProcess.on('close', (code) => {
+                console.log(`📊 yt-dlp closed with code ${code}, sent ${ytdlpBytesReceived} bytes`);
+                
+                // ⭐ ตรวจสอบว่าส่งข้อมูลหรือไม่
+                if (ytdlpBytesReceived === 0) {
+                    console.error('❌ yt-dlp sent NO DATA - likely failed to fetch video');
+                }
+                
                 if (code !== 0 && code !== null && !isResolved) {
                     console.error('❌ yt-dlp exit code:', code);
-                    console.error('stderr:', stderrOutput);
+                    console.error('Full stderr output:', stderrOutput);
 
                     if (stderrOutput.includes('Sign in to confirm') ||
                         stderrOutput.includes('not a bot') ||
@@ -162,7 +194,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             ffmpegProcess.stdout.read = function(...args) {
                 if (!dataReceived) {
                     dataReceived = true;
-                    console.log('✅ Audio stream receiving data...');
+                    console.log('✅ Audio stream receiving data from FFmpeg...');
                 }
                 return originalRead.apply(this, args);
             };
@@ -174,11 +206,18 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 }
             });
 
-            // ⭐ เพิ่ม expectedDuration ใน metadata
+            // ⭐ ถ้าไม่ได้ duration ใช้ default
+            setTimeout(() => {
+                if (!expectedDuration) {
+                    expectedDuration = 300000; // 5 minutes default
+                    console.warn(`⚠️ No duration from yt-dlp, using default ${expectedDuration/1000}s`);
+                }
+            }, 3000);
+
             resource.metadata = {
                 ytdlpProcess,
                 ffmpegProcess,
-                expectedDuration,  // ⭐ เพิ่มตรงนี้
+                expectedDuration,
                 hasReceivedData: () => dataReceived,
                 cleanup: () => cleanupProcesses(ytdlpProcess, ffmpegProcess)
             };
@@ -186,9 +225,9 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             ytdlpProcess.stdout.on('error', (err) => {
                 if (err.code === 'EPIPE') {
                     console.error('⚠️ yt-dlp stdout pipe closed');
-                    // ไม่ cleanup ทันที ให้ idle handler จัดการ
                     return;
                 }
+                console.error('❌ yt-dlp stdout error:', err);
                 cleanupProcesses(ytdlpProcess, ffmpegProcess);
             });
 
@@ -204,23 +243,25 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 cleanupProcesses(ytdlpProcess, ffmpegProcess);
             });
 
+            // ⭐ แสดง FFmpeg stderr เฉพาะ errors
             ffmpegProcess.stderr.on('data', (data) => {
                 const errorMsg = data.toString();
-                console.error('FFmpeg stderr:', errorMsg);
-                if (errorMsg.includes('error') || errorMsg.includes('failed')) {
-                    console.error('FFmpeg critical error detected:', errorMsg);
+                // เฉพาะ errors ที่สำคัญ
+                if (errorMsg.toLowerCase().includes('error') || 
+                    errorMsg.toLowerCase().includes('invalid data')) {
+                    console.error('🚨 FFmpeg ERROR:', errorMsg.trim());
                 }
             });
 
             ffmpegProcess.on('close', (code) => {
                 if (code !== 0 && code !== null) {
-                    console.error(`FFmpeg exited with code: ${code}`);
+                    console.error(`❌ FFmpeg exited with code: ${code}`);
                 }
                 cleanupProcesses(ytdlpProcess, ffmpegProcess);
             });
 
             ffmpegProcess.on('error', (err) => {
-                console.error('FFmpeg process error:', err);
+                console.error('❌ FFmpeg process error:', err);
                 cleanupProcesses(ytdlpProcess, ffmpegProcess);
             });
 
@@ -242,7 +283,6 @@ async function playWithYtDlp(cleanUrl, message, connection) {
         }
     });
 }
-
 async function playNext(guildId, lastVideoId = null) {
     if (processingGuilds.has(guildId)) {
         console.log('⚠️ Already processing next song for this guild, skipping...');
