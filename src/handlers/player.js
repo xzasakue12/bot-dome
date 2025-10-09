@@ -99,28 +99,57 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             });
 
             let stderrOutput = '';
-            let firstStderrLine = true;
 
-            // ⭐ แก้ไข stderr handler - debug ทุกอย่าง
+            // ⭐ ใช้ --dump-single-json เพื่อดึง metadata ก่อน
+            console.log('📊 Fetching video metadata...');
+            const metadataArgs = [
+                '--dump-single-json',
+                '--no-warnings',
+                cleanUrl
+            ];
+            
+            if (cookiesPath) {
+                metadataArgs.push('--cookies', cookiesPath);
+            }
+            
+            const metadataProcess = spawn(getYtDlpPath(), metadataArgs, {
+                shell: false,
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+            
+            let metadataJson = '';
+            metadataProcess.stdout.on('data', (data) => {
+                metadataJson += data.toString();
+            });
+            
+            metadataProcess.on('close', (code) => {
+                if (code === 0 && metadataJson) {
+                    try {
+                        const metadata = JSON.parse(metadataJson);
+                        expectedDuration = Math.round(metadata.duration * 1000);
+                        console.log(`📊 Duration from metadata: ${expectedDuration}ms (${Math.round(expectedDuration/1000)}s)`);
+                    } catch (e) {
+                        console.warn('⚠️ Failed to parse metadata, using default duration');
+                        expectedDuration = 300000;
+                    }
+                } else {
+                    console.warn('⚠️ Failed to fetch metadata, using default duration');
+                    expectedDuration = 300000;
+                }
+            });
+
+            // ⭐ แก้ไข stderr handler - ไม่ต้องดึง duration แล้ว
             ytdlpProcess.stderr.on('data', (data) => {
                 const output = data.toString();
                 stderrOutput += output;
                 
-                // ⭐ Debug: แสดง stderr ทุกบรรทัด
+                // ⭐ Debug: แสดง stderr เฉพาะที่สำคัญ
                 const lines = output.split('\n').filter(l => l.trim());
                 lines.forEach(line => {
-                    console.log(`📝 [yt-dlp stderr] ${line.trim()}`);
-                });
-                
-                // ⭐ ดึง duration - ต้องเป็นบรรทัดแรกที่เป็นตัวเลข
-                if (!expectedDuration && firstStderrLine) {
-                    const match = output.trim().match(/^(\d+\.?\d*)$/);
-                    if (match) {
-                        expectedDuration = Math.round(parseFloat(match[1]) * 1000);
-                        console.log(`📊 Expected duration: ${expectedDuration}ms (${Math.round(expectedDuration/1000)}s)`);
-                        firstStderrLine = false;
+                    if (line.includes('ERROR') || line.includes('WARNING')) {
+                        console.log(`📝 [yt-dlp] ${line.trim()}`);
                     }
-                }
+                });
                 
                 // ตรวจสอบ errors
                 if (output.includes('ERROR:') || output.includes('ERROR')) {
@@ -206,13 +235,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 }
             });
 
-            // ⭐ ถ้าไม่ได้ duration ใช้ default
-            setTimeout(() => {
-                if (!expectedDuration) {
-                    expectedDuration = 300000; // 5 minutes default
-                    console.warn(`⚠️ No duration from yt-dlp, using default ${expectedDuration/1000}s`);
-                }
-            }, 3000);
+            // ⭐ ลบ timeout สำหรับ duration (ดึงจาก metadata แล้ว)
 
             resource.metadata = {
                 ytdlpProcess,

@@ -23,8 +23,8 @@ function buildYtDlpArgs(cleanUrl) {
         '--no-check-certificate',
         '--prefer-free-formats',  // ⭐ เพิ่ม
         
-        // ⭐ ใช้ --dump-json แทน --print duration (reliable กว่า)
-        '--print', '%(duration)s',  // แก้จาก 'duration' เป็น '%(duration)s'
+        // ⭐ ลบ --print ออกเพราะมันทำให้ไม่ส่งข้อมูลเสียง!
+        // ใช้วิธีอื่นดึง duration แทน (ดูใน playWithYtDlp)
         
         // Output to stdout
         '-o', '-',
