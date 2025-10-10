@@ -14,7 +14,7 @@ function buildYtDlpArgs(cleanUrl) {
         '--buffer-size', '16K',             // ✅ ลดลงเป็น 16K (ดีกว่า 256K สำหรับ streaming)
         
         // ===== Format Selection - Audio Only =====
-        '--format', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio[ext=opus]/bestaudio', // ✅ เรียงตาม priority
+        '--format', 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio[ext=opus]/bestaudio', // ✅ เรียง m4a ก่อน
         // ❌ ลบ --extract-audio ออก! (มันทำให้ไม่ส่ง stdout)
         
         // ===== Output Settings =====
@@ -27,6 +27,7 @@ function buildYtDlpArgs(cleanUrl) {
         // ===== Performance =====
         '--no-part',                        // ⭐ ไม่สร้าง .part file
         '--no-mtime',                       // ⭐ ไม่ต้อง preserve timestamp
+        '--no-progress',                   // ⭐ เพิ่มบรรทัดนี้
         
         // ===== Output to stdout =====
         '--output', '-',

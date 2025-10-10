@@ -321,15 +321,32 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 }
             });
 
-            ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
-                shell: false,
-                windowsHide: true,
-                stdio: ['pipe', 'pipe', 'pipe']
+            const tempFile = path.join(__dirname, '../../temp_audio.webm');
+            const ytdlpDownloadArgs = [
+              '--cookies', cookiesPath,
+              '-f', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
+              '-o', tempFile,
+              cleanUrl
+            ];
+
+            // 1. ดาวน์โหลดไฟล์
+            await new Promise((resolve, reject) => {
+              const ytdlp = spawn(getYtDlpPath(), ytdlpDownloadArgs, { shell: false });
+              ytdlp.on('close', code => code === 0 ? resolve() : reject(new Error('yt-dlp download failed')));
             });
 
+            // 2. ffmpeg อ่านไฟล์ temp
+            ffmpegProcess = spawn('ffmpeg', [
+              '-i', tempFile,
+              '-f', 's16le',
+              '-ar', '48000',
+              '-ac', '2',
+              'pipe:1'
+            ], { shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+
             resource = createAudioResource(ffmpegProcess.stdout, {
-                inputType: StreamType.Arbitrary,
-                inlineVolume: true
+              inputType: StreamType.Arbitrary,
+              inlineVolume: true
             });
 
             if (resource.volume) {
