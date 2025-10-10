@@ -7,16 +7,24 @@ function buildFfmpegArgs(options = {}) {
 
     const args = [
         ...inputArgs,
-        '-i', input,
-        '-af', filters,
-        '-b:a', '128k',
-        '-f', 'opus',
-        '-ar', '48000',
-        '-ac', '2',
         '-hide_banner',
         '-loglevel', 'error',
-        'pipe:1'
+        '-i', input,
+        '-analyzeduration', '0',
+        '-map', '0:a:0'
     ];
+
+    if (filters) {
+        args.push('-af', filters);
+    }
+
+    args.push(
+        '-f', 's16le',
+        '-ar', '48000',
+        '-ac', '2',
+        '-acodec', 'pcm_s16le',
+        'pipe:1'
+    );
 
     return args;
 }
