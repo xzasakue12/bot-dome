@@ -327,6 +327,11 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 stdio: ['pipe', 'pipe', 'pipe']
             });
 
+            if (!ffmpegProcess.stdin || !ffmpegProcess.stdout) {
+                console.error('❌ FFmpeg process missing stdio pipes. Ensure ffmpeg is installed and accessible.');
+                throw setPlaybackError('FFMPEG_STREAM_UNAVAILABLE', 'FFmpeg process missing stdio pipes.');
+            }
+
             resource = createAudioResource(ffmpegProcess.stdout, {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: true

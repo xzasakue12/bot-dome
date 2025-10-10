@@ -30,12 +30,28 @@ async function createResourceWithPlayDl(track, options = {}) {
         discordPlayerCompatibility = true
     } = options;
 
+    if (!track || !track.cleanUrl) {
+        const error = new Error('Missing track URL for play-dl stream.');
+        error.code = 'PLAYDL_MISSING_URL';
+        throw error;
+    }
+
     if (track && track.sourceType === 'soundcloud') {
         await ensureSoundcloudToken();
     }
     await refreshSpotifyTokenIfNeeded();
 
-    const streamInfo = await play.stream(track.cleanUrl, { discordPlayerCompatibility });
+    let streamInfo;
+    try {
+        streamInfo = await play.stream(track.cleanUrl, { discordPlayerCompatibility });
+    } catch (error) {
+        if (error && error.message && error.message.toLowerCase().includes('invalid url')) {
+            const wrapped = new Error('play-dl could not derive a valid stream URL from this track.');
+            wrapped.code = 'PLAYDL_INVALID_URL';
+            throw wrapped;
+        }
+        throw error;
+    }
     const audioStream = streamInfo.stream;
     let hasData = false;
 
