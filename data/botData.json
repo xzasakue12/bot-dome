@@ -11,6 +11,14 @@
     "playbackHistory": {
       "1352918005411086366": [
         {
+          "title": "PURPEECH - กลัวว่าฉันจะไม่เสียใจ (Fear) [Official MV]",
+          "url": "https://www.youtube.com/watch?v=Hc4OrO4LRWw",
+          "requestedBy": "doome22",
+          "requestedById": "539107979270684691",
+          "playedAt": "2025-10-11T19:42:36.870Z",
+          "durationMs": 294000
+        },
+        {
           "title": "Autoplay Song",
           "url": "https://www.youtube.com/watch?v=wh11u95kimU",
           "requestedBy": "Autoplay",
@@ -33,7 +41,7 @@
         "https://www.youtube.com/watch?v=Hc4OrO4LRWw": {
           "title": "PURPEECH - กลัวว่าฉันจะไม่เสียใจ (Fear) [Official MV]",
           "url": "https://www.youtube.com/watch?v=Hc4OrO4LRWw",
-          "playCount": 1
+          "playCount": 2
         },
         "https://www.youtube.com/watch?v=wh11u95kimU": {
           "title": "Autoplay Song",
@@ -46,7 +54,7 @@
       "1352918005411086366": {
         "539107979270684691": {
           "tag": "doome22",
-          "playCount": 1
+          "playCount": 2
         },
         "autoplay": {
           "tag": "Autoplay",

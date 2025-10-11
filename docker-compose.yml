@@ -1,0 +1,24 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: my-discord-music-bot-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-bot}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-botpassword}
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - ./data/mongo/db:/data/db
+      - ./data/mongo/configdb:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bot-network
+
+networks:
+  bot-network:
+    driver: bridge
