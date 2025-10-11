@@ -1,5 +1,10 @@
 // utils/buildYtDlpArgs.js
-function buildYtDlpArgs(cleanUrl) {
+function buildYtDlpArgs(cleanUrl, options = {}) {
+    const { genericFormat = false } = options;
+    const formatSelector = genericFormat
+        ? 'bestaudio/best'
+        : 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio[ext=opus]/bestaudio/best';
+
     const args = [
         // ===== Headers & User Agent =====
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -14,7 +19,7 @@ function buildYtDlpArgs(cleanUrl) {
         '--buffer-size', '16K',             // ✅ ลดลงเป็น 16K (ดีกว่า 256K สำหรับ streaming)
         
         // ===== Format Selection - Audio Only =====
-        '--format', 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio[ext=opus]/bestaudio', // ✅ เรียง m4a ก่อน
+        '--format', formatSelector, // ✅ Primary audio selection
         // ❌ ลบ --extract-audio ออก! (มันทำให้ไม่ส่ง stdout)
         
         // ===== Output Settings =====
@@ -22,7 +27,7 @@ function buildYtDlpArgs(cleanUrl) {
         '--no-warnings',
         '--quiet',                          // ⭐ เพิ่ม: ลด noise ใน stderr
         '--no-check-certificate',
-        '--prefer-free-formats',
+        ...(!genericFormat ? ['--prefer-free-formats'] : []),
         
         // ===== Performance =====
         '--no-part',                        // ⭐ ไม่สร้าง .part file

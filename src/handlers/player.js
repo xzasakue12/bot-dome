@@ -6,13 +6,15 @@ const config = require('../config');
 const { getYtDlpPath } = require('../utils/helpers');
 const { getRandomYouTubeVideo } = require('../utils/youtube');
 const { logOnce, warnOnce, errorOnce } = require('../utils/logger');
-const { cleanupProcesses } = require('../services/resourceManager');
+const { cleanupProcesses, cleanupFragments } = require('../services/resourceManager');
 const { setupConnectionHandlers } = require('../services/connectionManager');
 const { checkAndLeaveIfEmpty } = require('../services/voiceChannelManager');
 const { createResourceForTrack, createResourceWithPlayDl } = require('../services/streamFactory');
 const extractVideoId = require('../utils/extractVideoId');
 const buildYtDlpArgs = require('../utils/buildYtDlpArgs');
 const buildFfmpegArgs = require('../utils/buildFfmpegArgs');
+const dataStore = require('../services/dataStore');
+const { getFilterForGuild } = require('../utils/audioFilters');
 
 let client;
 
@@ -119,8 +121,10 @@ async function initializePlayer() {
     return;
 }
 
-async function playWithYtDlp(cleanUrl, message, connection) {
-    return new Promise(async (resolve, reject) => {
+async function playWithYtDlp(cleanUrl, message, connection, options = {}) {
+    const { forceGenericFormat = false, ffmpegOptions = {} } = options;
+
+    const runWithFormat = (useGenericFormat) => new Promise(async (resolve, reject) => {
         let ytdlpProcess;
         let ffmpegProcess;
         let resource;
@@ -132,6 +136,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
         const STREAM_START_TIMEOUT = 15000;
         const STREAM_PROGRESS_GRACE = 8000;
         let lastStreamActivity = Date.now();
+        let formatUnavailable = false;
 
         const setPlaybackError = (code, message) => {
             if (!playbackError) {
@@ -150,6 +155,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             if (err) {
                 cleanupProcesses(ytdlpProcess, ffmpegProcess);
+                cleanupFragments();
                 reject(err);
             } else {
                 resolve(resource);
@@ -173,10 +179,13 @@ async function playWithYtDlp(cleanUrl, message, connection) {
         };
 
         try {
-            const ytdlpArgs = buildYtDlpArgs(cleanUrl);
-            const ffmpegArgs = buildFfmpegArgs();
+            const ytdlpArgs = buildYtDlpArgs(cleanUrl, { genericFormat: useGenericFormat });
+            const ffmpegArgs = buildFfmpegArgs(ffmpegOptions);
 
             logOnce('yt-dlp-start', `🎵 Starting yt-dlp stream for: ${cleanUrl}`);
+            if (useGenericFormat) {
+                console.warn('🎯 Using generic yt-dlp format fallback for this track');
+            }
 
             let cookiesPath = null;
             const baseCandidates = config.cookiesPath ? [config.cookiesPath, ...cookiesPaths] : cookiesPaths;
@@ -237,16 +246,21 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                     if (code === 0 && metadataJson) {
                         try {
                             const metadata = JSON.parse(metadataJson);
-                            const duration = Math.round(metadata.duration * 1000);
-                            console.log(`📊 Duration from metadata: ${duration}ms (${Math.round(duration/1000)}s)`);
-                            resolveMetadata(duration);
+                            const durationSec = typeof metadata.duration === 'number' ? metadata.duration : null;
+                            const durationMs = durationSec !== null ? Math.round(durationSec * 1000) : null;
+                            if (durationMs !== null) {
+                                console.log(`📊 Duration from metadata: ${durationMs}ms (${Math.round(durationMs/1000)}s)`);
+                            } else {
+                                console.warn('⚠️ Metadata did not include duration');
+                            }
+                            resolveMetadata(durationMs);
                         } catch (e) {
                             console.warn('⚠️ Failed to parse metadata:', e.message);
-                            resolveMetadata(300000);
+                            resolveMetadata(null);
                         }
                     } else {
                         console.warn(`⚠️ Metadata fetch failed (code ${code}), using default`);
-                        resolveMetadata(300000);
+                        resolveMetadata(null);
                     }
                 });
 
@@ -254,7 +268,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                     if (hasResolved) return;
                     hasResolved = true;
                     console.error('⚠️ Metadata process error:', err.message);
-                    resolveMetadata(300000);
+                    resolveMetadata(null);
                 });
 
                 setTimeout(() => {
@@ -266,11 +280,12 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                     } catch (e) {
                         console.error('Kill error:', e.message);
                     }
-                    resolveMetadata(300000);
+                    resolveMetadata(null);
                 }, 3000);
             });
 
-            console.log(`✅ Got duration: ${expectedDuration}ms, starting stream...`);
+            const durationLog = expectedDuration ? `${expectedDuration}ms (${Math.round(expectedDuration/1000)}s)` : 'unknown duration';
+            console.log(`✅ Got duration: ${durationLog}, starting stream...`);
             console.log('🔧 yt-dlp command:', getYtDlpPath(), ytdlpArgs.slice(0, 5).join(' '), '...');
 
             ytdlpProcess = spawn(getYtDlpPath(), ytdlpArgs, {
@@ -303,6 +318,11 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                     }
                     setPlaybackError('YTDLP_BOT_DETECTION', 'YouTube requires additional authentication (update cookies.txt).');
                 }
+
+                if (output.toLowerCase().includes('requested format is not available')) {
+                    formatUnavailable = true;
+                    setPlaybackError('YTDLP_FORMAT_NOT_AVAILABLE', 'yt-dlp could not find a matching audio format.');
+                }
             });
 
             ytdlpProcess.stdout.on('data', (chunk) => {
@@ -330,11 +350,15 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 const bytesPercent = expectedBytes > 0 ? (ytdlpBytesReceived / expectedBytes) * 100 : 0;
 
                 if (ytdlpBytesReceived === 0 || code !== 0) {
-                    console.error('❌ yt-dlp sent NO DATA - likely failed to fetch video');
-                    if (cookiesPath) {
+                    if (!formatUnavailable && cookiesPath) {
                         markCookiesPathInvalid(cookiesPath);
                     }
-                    finalize(setPlaybackError('YTDLP_NO_DATA', `yt-dlp exited with code ${code}`));
+
+                    const errCode = formatUnavailable ? 'YTDLP_FORMAT_NOT_AVAILABLE' : 'YTDLP_NO_DATA';
+                    const errMessage = formatUnavailable
+                        ? 'yt-dlp could not find a matching audio format.'
+                        : `yt-dlp exited with code ${code}`;
+                    finalize(setPlaybackError(errCode, errMessage));
                     return;
                 }
 
@@ -381,10 +405,14 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 ffmpegProcess,
                 expectedDuration,
                 hasReceivedData: () => dataReceived,
-                cleanup: () => cleanupProcesses(ytdlpProcess, ffmpegProcess)
+                cleanup: () => {
+                    cleanupProcesses(ytdlpProcess, ffmpegProcess);
+                    cleanupFragments();
+                }
             };
 
-            console.log(`📊 Resource metadata set: expectedDuration=${expectedDuration}ms`);
+            const expectedDurationLog = expectedDuration ? `${expectedDuration}ms` : 'unknown';
+            console.log(`📊 Resource metadata set: expectedDuration=${expectedDurationLog}`);
 
             ytdlpProcess.stdout.on('error', (err) => {
                 if (isResolved) return;
@@ -426,6 +454,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                     return;
                 }
                 cleanupProcesses(ytdlpProcess, ffmpegProcess);
+                cleanupFragments();
             });
 
             ffmpegProcess.on('error', (err) => {
@@ -443,6 +472,22 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             finalize(error instanceof Error ? error : new Error(String(error)));
         }
     });
+
+    try {
+        return await runWithFormat(forceGenericFormat);
+    } catch (error) {
+        const canRetryGenerically = !forceGenericFormat && error && (
+            error.code === 'YTDLP_FORMAT_NOT_AVAILABLE' ||
+            error.code === 'YTDLP_STREAM_TIMEOUT' ||
+            error.code === 'YTDLP_NO_DATA'
+        );
+
+        if (canRetryGenerically) {
+            console.warn(`⚠️ Retrying yt-dlp with generic format selection due to ${error.code}`);
+            return runWithFormat(true);
+        }
+        throw error;
+    }
 }
 async function playNext(guildId, lastVideoId = null) {
     if (processingGuilds.has(guildId)) {
@@ -465,6 +510,9 @@ async function playNext(guildId, lastVideoId = null) {
         if (!skipRequested && config.state.currentSong && config.state.currentSong.playDuration < 5000) {
             console.warn(`⚠️ Song ended too quickly (${config.state.currentSong.playDuration}ms), retrying...`);
             config.queue.unshift(config.state.currentSong);
+            if (config.state.currentSong.voiceChannel) {
+                config.state.lastVoiceChannel = config.state.currentSong.voiceChannel;
+            }
             config.state.currentSong = null;
             processingGuilds.delete(guildId);
             return playNext(guildId, lastVideoId);
@@ -479,8 +527,18 @@ async function playNext(guildId, lastVideoId = null) {
         if (config.queue.length === 0 && config.settings.autoplayEnabled) {
             console.log('🔄 Queue is empty. Autoplay is enabled. Waiting before autoplay...');
 
-            if (config.state.currentSong && config.state.currentSong.hasStartedPlaying) {
-                console.log('✅ Current song finished properly. Starting autoplay...');
+            const autoplayContext = (config.state.currentSong && config.state.currentSong.hasStartedPlaying)
+                ? config.state.currentSong
+                : config.state.lastCompletedSong;
+
+            const autoplayVoiceChannel = autoplayContext?.voiceChannel || config.state.lastVoiceChannel;
+            const autoplayTextChannel = autoplayContext?.textChannel || config.state.lastTextChannel;
+            const autoplayGuildId = autoplayVoiceChannel ? autoplayVoiceChannel.guild?.id : guildId;
+
+            if (!autoplayContext) {
+                console.warn('⚠️ Autoplay delayed due to incomplete song playback.');
+            } else if (autoplayVoiceChannel) {
+                console.log('✅ Autoplay context available. Starting autoplay...');
                 const nextUrl = await getRandomYouTubeVideo();
 
                 if (nextUrl) {
@@ -493,8 +551,12 @@ async function playNext(guildId, lastVideoId = null) {
 
                     config.queue.push({
                         cleanUrl: nextUrl,
-                        voiceChannel: config.state.currentSong.voiceChannel,
-                        textChannel: config.state.lastTextChannel,
+                        voiceChannel: autoplayVoiceChannel,
+                        guildId: autoplayGuildId,
+                        requestedBy: 'autoplay',
+                        requestedByTag: 'Autoplay',
+                        isAutoplay: true,
+                        textChannel: autoplayTextChannel,
                         message: { reply: () => {} },
                         title: 'Autoplay Song',
                         sourceType: 'youtube',
@@ -505,7 +567,7 @@ async function playNext(guildId, lastVideoId = null) {
                     return playNext(guildId, nextUrl);
                 }
             } else {
-                console.warn('⚠️ Autoplay delayed due to incomplete song playback.');
+                console.warn('⚠️ Autoplay delayed because no voice channel context is available.');
             }
         }
 
@@ -547,6 +609,10 @@ async function playNext(guildId, lastVideoId = null) {
                 voiceChannel
             };
 
+            if (voiceChannel) {
+                config.state.lastVoiceChannel = voiceChannel;
+            }
+
             if (textChannel) {
                 config.state.lastTextChannel = textChannel;
             }
@@ -578,6 +644,7 @@ async function playNext(guildId, lastVideoId = null) {
                 try {
                     connection = await createVoiceConnection(voiceChannel, guildId);
                     config.state.currentConnection = connection;
+                    connectionState.set(guildId, { retries: 0 });
                 } catch (error) {
                     console.error('❌ Failed to create voice connection:', error);
                     
@@ -591,13 +658,17 @@ async function playNext(guildId, lastVideoId = null) {
                     config.queue.unshift(track);
                     
                     const state = connectionState.get(guildId) || { retries: 0 };
+                    state.retries = (state.retries || 0) + 1;
+                    connectionState.set(guildId, state);
+
                     if (state.retries < MAX_RETRIES) {
                         setTimeout(() => {
                             playNext(guildId, lastVideoId);
-                        }, RETRY_DELAY * (state.retries + 1));
+                        }, RETRY_DELAY * state.retries);
                     } else {
                         console.error('❌ Max connection retries reached');
                         state.retries = 0;
+                        connectionState.set(guildId, state);
                     }
                     return;
                 }
@@ -606,6 +677,7 @@ async function playNext(guildId, lastVideoId = null) {
                     console.log(`⏳ [${guildId}] Waiting for connection to be ready...`);
                     await entersState(connection, VoiceConnectionStatus.Ready, CONNECTION_TIMEOUT);
                     console.log(`✅ [${guildId}] Connection ready`);
+                    connectionState.set(guildId, { retries: 0 });
                 } catch (error) {
                     console.error('❌ Connection not ready:', error);
                     
@@ -615,18 +687,29 @@ async function playNext(guildId, lastVideoId = null) {
                     processingGuilds.delete(guildId);
                     config.queue.unshift(track);
                     
+                    const state = connectionState.get(guildId) || { retries: 0 };
+                    state.retries = (state.retries || 0) + 1;
+                    connectionState.set(guildId, state);
+
                     setTimeout(() => {
                         playNext(guildId, lastVideoId);
-                    }, RETRY_DELAY);
+                    }, RETRY_DELAY * state.retries);
                     return;
                 }
+            }
+
+            const { filterString } = getFilterForGuild(guildId);
+            const ffmpegOptions = {};
+            if (filterString) {
+                ffmpegOptions.filters = filterString;
             }
 
             let resource;
 
             try {
                 resource = await createResourceForTrack(track, {
-                    fallback: async () => playWithYtDlp(cleanUrl, message, connection)
+                    ffmpegOptions,
+                    fallback: async () => playWithYtDlp(cleanUrl, message, connection, { ffmpegOptions })
                 });
             } catch (error) {
                 let finalError = error;
@@ -634,10 +717,15 @@ async function playNext(guildId, lastVideoId = null) {
 
                 if (sourceType === 'youtube') {
                     try {
-                        console.warn('⚠️ Retrying with play-dl after yt-dlp failure...');
-                        resource = await createResourceWithPlayDl(track, {
-                            discordPlayerCompatibility: false
-                        });
+                        if (ffmpegOptions.filters) {
+                            console.warn('⚠️ Applying filter requires yt-dlp fallback, retrying...');
+                            resource = await playWithYtDlp(cleanUrl, message, connection, { ffmpegOptions });
+                        } else {
+                            console.warn('⚠️ Retrying with play-dl after yt-dlp failure...');
+                            resource = await createResourceWithPlayDl(track, {
+                                discordPlayerCompatibility: false
+                            });
+                        }
                     } catch (retryError) {
                         finalError = retryError;
                         console.error('❌ play-dl retry failed:', retryError);
@@ -654,7 +742,7 @@ async function playNext(guildId, lastVideoId = null) {
                             userMessage = '❌ ไม่สามารถสตรีมไฟล์เสียงนี้ได้';
                         } else if (finalError && finalError.code === 'YTDLP_BOT_DETECTION') {
                             userMessage = '❌ YouTube ต้องการการยืนยันเพิ่มเติม กรุณาอัปโหลด cookies.txt ใหม่ใน Render แล้วลองอีกครั้ง.';
-                        } else if (finalError && (finalError.code === 'YTDLP_NO_DATA' || finalError.code === 'YTDLP_STREAM_TIMEOUT')) {
+                        } else if (finalError && (finalError.code === 'YTDLP_NO_DATA' || finalError.code === 'YTDLP_STREAM_TIMEOUT' || finalError.code === 'YTDLP_FORMAT_NOT_AVAILABLE')) {
                             userMessage = '❌ ไม่สามารถสตรีมเพลงจาก YouTube ได้ (yt-dlp ไม่มีข้อมูล) โปรดตรวจสอบลิงก์หรืออัปเดต cookies.txt.';
                         } else if (finalError && finalError.message) {
                             userMessage = `❌ ${finalError.message}`;
@@ -662,6 +750,9 @@ async function playNext(guildId, lastVideoId = null) {
 
                         message.channel.send(userMessage)
                             .catch(e => console.error('Send error:', e));
+                    }
+                    if (config.state.currentSong?.voiceChannel) {
+                        config.state.lastVoiceChannel = config.state.currentSong.voiceChannel;
                     }
                     config.state.currentSong = null;
                     config.state.isPlaying = false;
@@ -705,6 +796,15 @@ async function playNext(guildId, lastVideoId = null) {
                 if (message && message.channel) {
                     message.channel.send(`🎶 กำลังเล่น: **${title || cleanUrl}**`)
                         .catch(e => console.error('Send error:', e));
+                }
+
+                const playbackTrack = config.state.currentSong || track;
+                const playbackGuildId = playbackTrack?.guildId || guildId;
+                const requesterId = playbackTrack?.requestedBy || null;
+                const requesterTag = playbackTrack?.requestedByTag || message?.author?.tag || 'Unknown';
+
+                if (playbackGuildId) {
+                    dataStore.recordPlayback(playbackGuildId, playbackTrack, requesterId, requesterTag);
                 }
             });
 
@@ -865,6 +965,17 @@ async function playNext(guildId, lastVideoId = null) {
                 
                 if (config.state.currentSong) {
                     console.log(`✅ Finished playing: ${config.state.currentSong.title || config.state.currentSong.cleanUrl}`);
+                    const lastTrackSnapshot = { ...config.state.currentSong };
+                    delete lastTrackSnapshot.message;
+                    config.state.lastCompletedSong = {
+                        voiceChannel,
+                        textChannel: config.state.lastTextChannel,
+                        hasStartedPlaying: true,
+                        track: lastTrackSnapshot
+                    };
+                    if (voiceChannel) {
+                        config.state.lastVoiceChannel = voiceChannel;
+                    }
                 }
 
                 // Cleanup resources
@@ -937,6 +1048,10 @@ async function playNext(guildId, lastVideoId = null) {
                         config.queue.push({ 
                             cleanUrl: nextUrl, 
                             voiceChannel,
+                            guildId: voiceChannel.guild?.id || guildId,
+                            requestedBy: 'autoplay',
+                            requestedByTag: 'Autoplay',
+                            isAutoplay: true,
                             textChannel: config.state.lastTextChannel,
                             message: { 
                                 reply: () => {},

@@ -12,6 +12,8 @@ module.exports = {
         currentSong: null,
         lastPlayedVideoId: null,
         lastTextChannel: null,
+        lastVoiceChannel: null,
+        lastCompletedSong: null,
         leaveTimeout: null,
     },
     

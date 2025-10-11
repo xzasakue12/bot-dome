@@ -1,4 +1,5 @@
 const config = require('../config');
+const dataStore = require('../services/dataStore');
 
 module.exports = {
     name: 'stats',
@@ -35,6 +36,12 @@ module.exports = {
                         config.loop.mode === 'queue' ? '🔁 ทั้งคิว' : '➡️ ปิด';
         const autoplayStatus = config.settings.autoplayEnabled ? '🟢 เปิด' : '🔴 ปิด';
         
+        const analytics = message.guild ? dataStore.getGuildAnalytics(message.guild.id) : { history: [], topTracks: [], topRequesters: [] };
+        const topTrack = analytics.topTracks && analytics.topTracks.length ? `🎧 เพลงฮิต: ${analytics.topTracks[0].title} (${analytics.topTracks[0].playCount} ครั้ง)` : '';
+        const topRequester = analytics.topRequesters && analytics.topRequesters.length ? `🙋 ผู้ขอบ่อยสุด: ${analytics.topRequesters[0].tag} (${analytics.topRequesters[0].playCount} เพลง)` : '';
+
+        const commandCount = message.client?.commands?.size || 0;
+
         const statsMessage = `
 📊 **สถิติบอท - ${client.user.username}**
 
@@ -54,9 +61,11 @@ ${playingStatus}
 🔁 โหมดลูป: ${loopMode}
 🎲 Autoplay: ${autoplayStatus}
 ${config.state.currentSong ? `🎵 กำลังเล่น: **${config.state.currentSong.title}**` : ''}
+ ${topTrack}
+ ${topRequester}
 
 **คำสั่ง:**
-📝 คำสั่งทั้งหมด: 21 คำสั่ง
+📝 คำสั่งทั้งหมด: ${commandCount} คำสั่ง
 ⚡ เวอร์ชัน: v3.0.0
         `.trim();
         

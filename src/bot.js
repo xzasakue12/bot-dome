@@ -10,6 +10,7 @@ const { loadCommands, handleCommand } = require('./handlers/commandHandler');
 const fs = require('fs');
 const path = require('path');
 const { getYoutubeApiKey } = require('./utils/helpers');
+const dataStore = require('./services/dataStore');
 
 // อ่าน YT_COOKIE จาก Environment Variables (ถ้ามี)
 if (process.env.YT_COOKIE) {
@@ -63,6 +64,7 @@ const client = new Client({
 // โหลดคำสั่งทั้งหมด
 const commands = loadCommands();
 console.log(`📋 Loaded ${commands.size} commands`);
+client.commands = commands;
 
 // ส่ง client ให้ player handler
 setClient(client);
@@ -108,6 +110,7 @@ process.on('uncaughtException', (error) => {
 });
 
 async function startBot() {
+    dataStore.loadData();
     await initializePlayer();
     await client.login(process.env.TOKEN || process.env.DISCORD_BOT_TOKEN);
 }

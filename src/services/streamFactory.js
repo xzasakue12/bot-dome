@@ -86,9 +86,9 @@ async function createResourceWithPlayDl(track, options = {}) {
     return resource;
 }
 
-function createFfmpegResourceFromReadable(readable, track) {
+function createFfmpegResourceFromReadable(readable, track, ffmpegOptions = {}) {
     return new Promise((resolve, reject) => {
-        const ffmpegArgs = buildFfmpegArgs();
+        const ffmpegArgs = buildFfmpegArgs(ffmpegOptions);
         const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
             stdio: ['pipe', 'pipe', 'pipe'],
             windowsHide: true
@@ -161,7 +161,7 @@ function createFfmpegResourceFromReadable(readable, track) {
     });
 }
 
-function createResourceFromLocal(track) {
+function createResourceFromLocal(track, ffmpegOptions) {
     const filePath = track.streamData?.path || track.cleanUrl;
     if (!filePath || !fs.existsSync(filePath)) {
         const error = new Error('ไม่พบไฟล์บนเครื่องนี้');
@@ -170,10 +170,10 @@ function createResourceFromLocal(track) {
     }
 
     const stream = fs.createReadStream(filePath);
-    return createFfmpegResourceFromReadable(stream, track);
+    return createFfmpegResourceFromReadable(stream, track, ffmpegOptions);
 }
 
-function createResourceFromHttp(track) {
+function createResourceFromHttp(track, ffmpegOptions) {
     return new Promise((resolve, reject) => {
         const transport = track.cleanUrl.startsWith('https') ? https : http;
         const request = transport.get(track.cleanUrl, (response) => {
@@ -182,7 +182,7 @@ function createResourceFromHttp(track) {
                 return reject(new Error(`HTTP ${response.statusCode} จากแหล่งเสียง`));
             }
 
-            createFfmpegResourceFromReadable(response, track)
+            createFfmpegResourceFromReadable(response, track, ffmpegOptions)
                 .then(resolve)
                 .catch(reject);
         });
@@ -192,7 +192,7 @@ function createResourceFromHttp(track) {
 }
 
 async function createResourceForTrack(track, options = {}) {
-    const { fallback } = options;
+    const { fallback, ffmpegOptions = {} } = options;
 
     if (!track || !track.sourceType) {
         throw new Error('ข้อมูลเพลงไม่ถูกต้อง');
@@ -200,13 +200,19 @@ async function createResourceForTrack(track, options = {}) {
 
     switch (track.sourceType) {
         case 'local':
-            return createResourceFromLocal(track);
+            return createResourceFromLocal(track, ffmpegOptions);
         case 'http-audio':
-            return createResourceFromHttp(track);
+            return createResourceFromHttp(track, ffmpegOptions);
         case 'soundcloud':
             return createResourceWithPlayDl(track);
         case 'youtube':
             try {
+                if (ffmpegOptions && ffmpegOptions.filters) {
+                    if (typeof fallback === 'function') {
+                        return fallback(new Error('FILTERS_REQUIRE_YTDLP'));
+                    }
+                    return await createResourceWithPlayDl(track);
+                }
                 return await createResourceWithPlayDl(track);
             } catch (error) {
                 console.warn('⚠️ play-dl ไม่สามารถเปิด YouTube ได้ กำลังใช้ yt-dlp แทน');

@@ -2,7 +2,7 @@ function buildFfmpegArgs(options = {}) {
     const {
         input = 'pipe:0',
         inputArgs = [],
-        filters = 'bass=g=10'
+        filters = null
     } = options;
 
     const args = [

@@ -382,6 +382,9 @@ module.exports = {
         }
 
         const trackTitle = trackInfo.title || trackInfo.url;
+        const guildId = message.guild ? message.guild.id : null;
+        const requestedBy = message.author ? message.author.id : null;
+        const requestedByTag = message.author ? message.author.tag : 'Unknown';
 
         config.state.lastTextChannel = message.channel;
 
@@ -390,6 +393,9 @@ module.exports = {
         config.queue.push({
             cleanUrl: trackInfo.url,
             voiceChannel,
+            guildId,
+            requestedBy,
+            requestedByTag,
             message,
             textChannel: message.channel,
             title: trackTitle,

@@ -40,11 +40,17 @@ module.exports = {
             const firstVideo = searchResult[0];
             const cleanUrl = firstVideo.url;
             const songTitle = firstVideo.title;
+            const guildId = voiceChannel.guild.id;
+            const requestedBy = message.author ? message.author.id : null;
+            const requestedByTag = message.author ? message.author.tag : 'Unknown';
 
             config.state.lastTextChannel = message.channel;
             config.queue.push({ 
                 cleanUrl, 
                 voiceChannel, 
+                guildId,
+                requestedBy,
+                requestedByTag,
                 message, 
                 textChannel: message.channel, 
                 title: songTitle,
