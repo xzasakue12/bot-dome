@@ -1,6 +1,6 @@
 # สคริปต์สร้าง Shortcut อัตโนมัติใน Startup Folder
 
-$botPath = "C:\Users\xzasakue12\my-discord-music-bot\startup-bot.bat"
+$targetPath = "C:\Users\xzasakue12\my-discord-music-bot\run-startup-hidden.vbs"
 $startupPath = [System.Environment]::GetFolderPath('Startup')
 $shortcutPath = Join-Path $startupPath "Discord-Music-Bot.lnk"
 
@@ -8,8 +8,8 @@ Write-Host "🚀 กำลังสร้าง Auto-Start Shortcut..." -Foregro
 Write-Host ""
 
 # ตรวจสอบว่าไฟล์ bat มีอยู่หรือไม่
-if (!(Test-Path $botPath)) {
-    Write-Host "❌ ไม่พบไฟล์: $botPath" -ForegroundColor Red
+if (!(Test-Path $targetPath)) {
+    Write-Host "❌ ไม่พบไฟล์: $targetPath" -ForegroundColor Red
     exit 1
 }
 
@@ -22,7 +22,7 @@ if (Test-Path $shortcutPath) {
 # สร้าง shortcut ใหม่
 $WScriptShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WScriptShell.CreateShortcut($shortcutPath)
-$Shortcut.TargetPath = $botPath
+$Shortcut.TargetPath = $targetPath
 $Shortcut.WorkingDirectory = "C:\Users\xzasakue12\my-discord-music-bot"
 $Shortcut.Description = "Discord Music Bot Auto-Start"
 $Shortcut.Save()

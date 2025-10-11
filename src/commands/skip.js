@@ -15,6 +15,11 @@ module.exports = {
 
         message.reply('⏭️ กำลังข้ามเพลง...');
         
+        config.state.skipRequested = true;
+        if (config.state.currentSong) {
+            config.state.currentSong.skipRequested = true;
+        }
+        
         // หยุดเพลงปัจจุบัน ระบบจะเล่นเพลงถัดไปอัตโนมัติ
         config.state.currentPlayer.stop();
     }

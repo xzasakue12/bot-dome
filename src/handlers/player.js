@@ -93,7 +93,7 @@ async function validateCookies(cookiesPath) {
             '--dump-single-json',
             '--no-warnings',
             testUrl
-        ]);
+        ], { windowsHide: true });
         
         let output = '';
         test.stdout.on('data', d => output += d);
@@ -129,6 +129,9 @@ async function playWithYtDlp(cleanUrl, message, connection) {
         let isResolved = false;
         let playbackError = null;
         let finalizeTimer;
+        const STREAM_START_TIMEOUT = 15000;
+        const STREAM_PROGRESS_GRACE = 8000;
+        let lastStreamActivity = Date.now();
 
         const setPlaybackError = (code, message) => {
             if (!playbackError) {
@@ -151,6 +154,22 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             } else {
                 resolve(resource);
             }
+        };
+
+        const armFinalizeTimer = () => {
+            if (isResolved) return;
+            if (finalizeTimer) {
+                clearTimeout(finalizeTimer);
+            }
+            finalizeTimer = setTimeout(() => {
+                if (isResolved) return;
+                const inactiveFor = Date.now() - lastStreamActivity;
+                if (ytdlpBytesReceived > 0 && inactiveFor < STREAM_PROGRESS_GRACE) {
+                    armFinalizeTimer();
+                    return;
+                }
+                finalize(playbackError || setPlaybackError('YTDLP_STREAM_TIMEOUT', 'Timed out waiting for audio data.'));
+            }, STREAM_START_TIMEOUT);
         };
 
         try {
@@ -193,7 +212,8 @@ async function playWithYtDlp(cleanUrl, message, connection) {
                 const metadataProcess = spawn(getYtDlpPath(), metadataArgs, {
                     shell: false,
                     stdio: ['ignore', 'pipe', 'pipe'],
-                    timeout: 8000
+                    timeout: 8000,
+                    windowsHide: true
                 });
 
                 let metadataJson = '';
@@ -287,6 +307,8 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             ytdlpProcess.stdout.on('data', (chunk) => {
                 ytdlpBytesReceived += chunk.length;
+                lastStreamActivity = Date.now();
+                armFinalizeTimer();
                 if (ytdlpBytesReceived % (1024 * 1024) < chunk.length) {
                     console.log(`📥 Received ${Math.round(ytdlpBytesReceived / 1024 / 1024)}MB`);
                 }
@@ -328,8 +350,8 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             });
 
             resource = createAudioResource(ffmpegProcess.stdout, {
-              inputType: StreamType.Arbitrary,
-              inlineVolume: true
+                inputType: StreamType.Raw,
+                inlineVolume: true
             });
 
             if (resource.volume) {
@@ -341,6 +363,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
             ffmpegProcess.stdout.once('data', () => {
                 if (!dataReceived) {
                     dataReceived = true;
+                    lastStreamActivity = Date.now();
                     console.log('✅ Audio stream receiving data from FFmpeg...');
                     finalize(null);
                 }
@@ -348,6 +371,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             ffmpegProcess.stdout.once('readable', () => {
                 if (!dataReceived) {
+                    lastStreamActivity = Date.now();
                     console.log('✅ Audio stream ready (readable)');
                 }
             });
@@ -412,9 +436,7 @@ async function playWithYtDlp(cleanUrl, message, connection) {
 
             console.log('✅ yt-dlp stream created successfully');
 
-            finalizeTimer = setTimeout(() => {
-                finalize(playbackError || setPlaybackError('YTDLP_STREAM_TIMEOUT', 'Timed out waiting for audio data.'));
-            }, 12000);
+            armFinalizeTimer();
 
         } catch (error) {
             console.error('❌ yt-dlp error:', error);
@@ -437,14 +459,21 @@ async function playNext(guildId, lastVideoId = null) {
     processingGuilds.add(guildId);
 
     try {
+        const skipRequested = Boolean(config.state.skipRequested || (config.state.currentSong && config.state.currentSong.skipRequested));
+
         // Check if the previous song ended prematurely
-        if (config.state.currentSong && config.state.currentSong.playDuration < 5000) {
+        if (!skipRequested && config.state.currentSong && config.state.currentSong.playDuration < 5000) {
             console.warn(`⚠️ Song ended too quickly (${config.state.currentSong.playDuration}ms), retrying...`);
             config.queue.unshift(config.state.currentSong);
             config.state.currentSong = null;
             processingGuilds.delete(guildId);
             return playNext(guildId, lastVideoId);
         }
+
+        if (config.state.currentSong) {
+            delete config.state.currentSong.skipRequested;
+        }
+        config.state.skipRequested = false;
 
         // Ensure autoplay only starts after confirming the current song has finished properly
         if (config.queue.length === 0 && config.settings.autoplayEnabled) {
@@ -729,9 +758,14 @@ async function playNext(guildId, lastVideoId = null) {
                 
                 console.log(`⏹️ Player idle after ${durationStr}, checking next action...`);
                 console.log(`   hasStartedPlaying: ${hasStartedPlaying}, playDuration: ${playDuration}ms`);
+
+                const skipRequested = Boolean(config.state.skipRequested || (config.state.currentSong && config.state.currentSong.skipRequested));
+                if (skipRequested) {
+                    console.log('⏭️ Skip requested, bypassing retry safeguards for current track');
+                }
                 
                 // ⭐ เช็คว่าเล่นจริงๆ หรือเปล่า (ใช้ expectedDuration)
-               if (resource.metadata?.expectedDuration) {
+                if (!skipRequested && resource.metadata?.expectedDuration) {
                     const expectedDuration = resource.metadata.expectedDuration;
                     const percentPlayed = (playDuration / expectedDuration) * 100;
                     
@@ -760,7 +794,7 @@ async function playNext(guildId, lastVideoId = null) {
                 const connectionOk = connection && 
                     connection.state.status === VoiceConnectionStatus.Ready;
                 
-                if (!connectionOk) {
+                if (!connectionOk && !skipRequested) {
                     console.warn(`⚠️ Connection lost during playback - attempting recovery`);
                     
                     if (resource.metadata && resource.metadata.cleanup) {
@@ -784,7 +818,7 @@ async function playNext(guildId, lastVideoId = null) {
                 }
                 
                 // ⭐ ถ้าเล่นเร็วเกินไป (< 10s) = ไม่ได้เริ่มเล่นจริง
-                if (playDuration < 10000 && hasStartedPlaying) {
+                if (!skipRequested && playDuration < 10000 && hasStartedPlaying) {
                     console.warn(`⚠️ Song ended too quickly (${Math.round(playDuration/1000)}s) - RETRYING`);
                     
                     if (resource.metadata && resource.metadata.cleanup) {
@@ -806,7 +840,7 @@ async function playNext(guildId, lastVideoId = null) {
                 }
                 
                 // ถ้าไม่ได้เริ่มเล่นเลย
-                if (!hasStartedPlaying) {
+                if (!skipRequested && !hasStartedPlaying) {
                     console.warn(`⚠️ Song never started playing - RETRYING`);
                     
                     if (resource.metadata && resource.metadata.cleanup) {

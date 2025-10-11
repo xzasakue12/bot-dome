@@ -29,6 +29,10 @@ module.exports = {
         }
 
         // ข้ามเพลงปัจจุบัน
+        config.state.skipRequested = true;
+        if (config.state.currentSong) {
+            config.state.currentSong.skipRequested = true;
+        }
         if (config.state.currentPlayer) {
             config.state.currentPlayer.stop();
         }

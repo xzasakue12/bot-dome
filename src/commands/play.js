@@ -19,7 +19,7 @@ async function getVideoTitle(url) {
                 '--no-warnings',
                 '--no-playlist',
                 url
-            ]);
+            ], { windowsHide: true });
 
             let title = '';
             process.stdout.on('data', (data) => {

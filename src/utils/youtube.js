@@ -62,7 +62,7 @@ async function searchYouTubeYtDlp(query, limit = 5) {
             const cookiesPath = getCookiesPath();
             const args = buildYtDlpArgs(query, limit, cookiesPath);
 
-            const ytdlpProcess = spawn(ytDlpPath, args);
+            const ytdlpProcess = spawn(ytDlpPath, args, { windowsHide: true });
 
             let output = '';
             ytdlpProcess.stdout.on('data', (data) => {
@@ -134,7 +134,7 @@ async function getVideoInfo(url) {
                 url
             );
 
-            const process = spawn(ytDlpPath, args);
+            const process = spawn(ytDlpPath, args, { windowsHide: true });
 
             let output = '';
             process.stdout.on('data', (data) => {

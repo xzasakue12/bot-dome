@@ -90,7 +90,8 @@ function createFfmpegResourceFromReadable(readable, track) {
     return new Promise((resolve, reject) => {
         const ffmpegArgs = buildFfmpegArgs();
         const ffmpegProcess = spawn('ffmpeg', ffmpegArgs, {
-            stdio: ['pipe', 'pipe', 'pipe']
+            stdio: ['pipe', 'pipe', 'pipe'],
+            windowsHide: true
         });
 
         let resolved = false;
@@ -113,7 +114,7 @@ function createFfmpegResourceFromReadable(readable, track) {
         };
 
         const resource = createAudioResource(ffmpegProcess.stdout, {
-            inputType: StreamType.Arbitrary,
+            inputType: StreamType.Raw,
             inlineVolume: true
         });
 

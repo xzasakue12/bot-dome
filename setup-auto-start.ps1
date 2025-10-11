@@ -2,7 +2,7 @@
 # Run this script as Administrator
 
 $taskName = "Discord-Music-Bot-Startup"
-$scriptPath = "C:\Users\xzasakue12\my-discord-music-bot\startup-bot.bat"
+$scriptPath = "C:\Users\xzasakue12\my-discord-music-bot\run-startup-hidden.vbs"
 $workingDir = "C:\Users\xzasakue12\my-discord-music-bot"
 
 Write-Host "Creating Windows Task Scheduler for Discord Music Bot..." -ForegroundColor Cyan
@@ -16,7 +16,7 @@ if ($existingTask) {
 }
 
 # Create action
-$action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$scriptPath`"" -WorkingDirectory $workingDir
+$action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$scriptPath`"" -WorkingDirectory $workingDir
 
 # Create trigger (at startup + delay 30 seconds)
 $trigger = New-ScheduledTaskTrigger -AtStartup

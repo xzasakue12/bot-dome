@@ -12,6 +12,11 @@ module.exports = {
             return message.reply('❌ บอทไม่ได้อยู่ในห้องเสียง!');
         }
 
+        config.state.skipRequested = true;
+        if (config.state.currentSong) {
+            config.state.currentSong.skipRequested = true;
+        }
+
         // ล้างคิว
         config.queue.length = 0;
         
