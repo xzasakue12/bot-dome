@@ -9,8 +9,11 @@ function buildFfmpegArgs(options = {}) {
         ...inputArgs,
         '-hide_banner',
         '-loglevel', 'error',
+        '-fflags', 'nobuffer',
+        '-flags', 'low_delay',
         '-i', input,
         '-analyzeduration', '0',
+        '-probesize', '32',
         '-map', '0:a:0'
     ];
 

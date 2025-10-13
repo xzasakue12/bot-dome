@@ -1,0 +1,11 @@
+# Ignore node modules
+node_modules
+
+# Ignore database data
+data/
+
+# Ignore environment file with secrets
+.env
+
+# Ignore git directory
+.git

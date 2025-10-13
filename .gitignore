@@ -5,6 +5,9 @@ node_modules/
 .env
 .env.local
 .env.*.local
+.env.*
+!.env.example
+!.env.sample
 
 # Logs
 logs/
@@ -31,6 +34,9 @@ build/
 # Temporary files
 *.tmp
 tmp*
+
+# Local data stores
+data/mongo/
 
 # FFmpeg (ไฟล์ใหญ่)
 ffmpeg-7.1.1-full_build/

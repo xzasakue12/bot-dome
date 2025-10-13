@@ -5,10 +5,13 @@ const path = require('path');
  * หา path ของ yt-dlp
  */
 function getYtDlpPath() {
+    // สำหรับการรันบน Windows โดยตรง (ไม่ต้องแก้)
     if (process.platform === 'win32') {
         return path.resolve(__dirname, '..', '..', 'yt-dlp.exe');
     } else {
-        return path.resolve(__dirname, '..', '..', 'yt-dlp');
+        // [FIX] สำหรับการรันใน Docker (Linux)
+        // ชี้ไปที่ path ที่เราติดตั้ง yt-dlp ไว้ด้วย wget ใน Dockerfile
+        return '/usr/local/bin/yt-dlp';
     }
 }
 

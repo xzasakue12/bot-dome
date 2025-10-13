@@ -11,6 +11,54 @@
     "playbackHistory": {
       "1352918005411086366": [
         {
+          "title": "Violette Wautier - wanna be yours (อยากให้เธอรัก) | OFFICIAL MV",
+          "url": "https://www.youtube.com/watch?v=8ONLsKcc294",
+          "requestedBy": "doome22",
+          "requestedById": "539107979270684691",
+          "playedAt": "2025-10-13T05:53:27.967Z",
+          "durationMs": 230000
+        },
+        {
+          "title": "Violette Wautier - wanna be yours (อยากให้เธอรัก) | OFFICIAL MV",
+          "url": "https://www.youtube.com/watch?v=8ONLsKcc294",
+          "requestedBy": "doome22",
+          "requestedById": "539107979270684691",
+          "playedAt": "2025-10-13T05:47:39.555Z",
+          "durationMs": 230000
+        },
+        {
+          "title": "Violette Wautier - wanna be yours (อยากให้เธอรัก) | OFFICIAL MV",
+          "url": "https://www.youtube.com/watch?v=8ONLsKcc294",
+          "requestedBy": "doome22",
+          "requestedById": "539107979270684691",
+          "playedAt": "2025-10-13T05:44:18.187Z",
+          "durationMs": 230000
+        },
+        {
+          "title": "อยู่ได้แล้ว - LIPTA feat. Mirrr [OFFICIAL MV]",
+          "url": "https://www.youtube.com/watch?v=-9-hpntNym4",
+          "requestedBy": "doome22",
+          "requestedById": "539107979270684691",
+          "playedAt": "2025-10-13T05:32:49.856Z",
+          "durationMs": 300000
+        },
+        {
+          "title": "อยู่ได้แล้ว - LIPTA feat. Mirrr [OFFICIAL MV]",
+          "url": "https://www.youtube.com/watch?v=-9-hpntNym4",
+          "requestedBy": "doome22",
+          "requestedById": "539107979270684691",
+          "playedAt": "2025-10-13T05:23:11.678Z",
+          "durationMs": 300000
+        },
+        {
+          "title": "อยู่ได้แล้ว - LIPTA feat. Mirrr [OFFICIAL MV]",
+          "url": "https://www.youtube.com/watch?v=-9-hpntNym4",
+          "requestedBy": "doome22",
+          "requestedById": "539107979270684691",
+          "playedAt": "2025-10-13T05:18:37.662Z",
+          "durationMs": 300000
+        },
+        {
           "title": "PURPEECH - กลัวว่าฉันจะไม่เสียใจ (Fear) [Official MV]",
           "url": "https://www.youtube.com/watch?v=Hc4OrO4LRWw",
           "requestedBy": "doome22",
@@ -47,6 +95,16 @@
           "title": "Autoplay Song",
           "url": "https://www.youtube.com/watch?v=wh11u95kimU",
           "playCount": 1
+        },
+        "https://www.youtube.com/watch?v=-9-hpntNym4": {
+          "title": "อยู่ได้แล้ว - LIPTA feat. Mirrr [OFFICIAL MV]",
+          "url": "https://www.youtube.com/watch?v=-9-hpntNym4",
+          "playCount": 3
+        },
+        "https://www.youtube.com/watch?v=8ONLsKcc294": {
+          "title": "Violette Wautier - wanna be yours (อยากให้เธอรัก) | OFFICIAL MV",
+          "url": "https://www.youtube.com/watch?v=8ONLsKcc294",
+          "playCount": 3
         }
       }
     },
@@ -54,7 +112,7 @@
       "1352918005411086366": {
         "539107979270684691": {
           "tag": "doome22",
-          "playCount": 2
+          "playCount": 8
         },
         "autoplay": {
           "tag": "Autoplay",

@@ -129,6 +129,7 @@ async function playWithYtDlp(cleanUrl, message, connection, options = {}) {
         let ffmpegProcess;
         let resource;
         let expectedDuration = null;
+        let pendingExpectedDuration = null;
         let ytdlpBytesReceived = 0;
         let isResolved = false;
         let playbackError = null;
@@ -204,7 +205,39 @@ async function playWithYtDlp(cleanUrl, message, connection, options = {}) {
             }
 
             console.log('📊 Fetching video metadata...');
-            expectedDuration = await new Promise((resolveMetadata) => {
+
+            const metadataQuickTimeoutMs = 750;
+            let metadataLogged = false;
+
+            const handleMetadataResult = (durationMs, context) => {
+                if (metadataLogged) {
+                    if (durationMs !== null) {
+                        expectedDuration = durationMs;
+                        if (resource) {
+                            resource.metadata.expectedDuration = durationMs;
+                        } else {
+                            pendingExpectedDuration = durationMs;
+                        }
+                    }
+                    return;
+                }
+
+                metadataLogged = true;
+                if (durationMs !== null) {
+                    expectedDuration = durationMs;
+                    if (resource) {
+                        resource.metadata.expectedDuration = durationMs;
+                    } else {
+                        pendingExpectedDuration = durationMs;
+                    }
+                    const seconds = Math.round(durationMs / 1000);
+                    console.log(`📊 Duration from metadata${context === 'delayed' ? ' (delayed)' : ''}: ${durationMs}ms (${seconds}s)`);
+                } else {
+                    console.warn(`⚠️ Metadata${context === 'delayed' ? ' (delayed)' : ''} did not provide duration`);
+                }
+            };
+
+            const metadataPromise = new Promise((resolveMetadata) => {
                 const metadataArgs = [
                     '--dump-single-json',
                     '--no-warnings',
@@ -248,18 +281,12 @@ async function playWithYtDlp(cleanUrl, message, connection, options = {}) {
                             const metadata = JSON.parse(metadataJson);
                             const durationSec = typeof metadata.duration === 'number' ? metadata.duration : null;
                             const durationMs = durationSec !== null ? Math.round(durationSec * 1000) : null;
-                            if (durationMs !== null) {
-                                console.log(`📊 Duration from metadata: ${durationMs}ms (${Math.round(durationMs/1000)}s)`);
-                            } else {
-                                console.warn('⚠️ Metadata did not include duration');
-                            }
                             resolveMetadata(durationMs);
                         } catch (e) {
                             console.warn('⚠️ Failed to parse metadata:', e.message);
                             resolveMetadata(null);
                         }
                     } else {
-                        console.warn(`⚠️ Metadata fetch failed (code ${code}), using default`);
                         resolveMetadata(null);
                     }
                 });
@@ -274,7 +301,7 @@ async function playWithYtDlp(cleanUrl, message, connection, options = {}) {
                 setTimeout(() => {
                     if (hasResolved) return;
                     hasResolved = true;
-                    console.warn('⚠️ Metadata timeout (3s), using default duration');
+                    console.warn('⚠️ Metadata timeout (3s), continuing without it');
                     try {
                         metadataProcess.kill('SIGKILL');
                     } catch (e) {
@@ -284,6 +311,23 @@ async function playWithYtDlp(cleanUrl, message, connection, options = {}) {
                 }, 3000);
             });
 
+            const quickMetadataResult = await Promise.race([
+                metadataPromise.then((duration) => ({ duration, timedOut: false })),
+                new Promise((resolve) => setTimeout(() => resolve({ duration: null, timedOut: true }), metadataQuickTimeoutMs))
+            ]);
+
+            if (!quickMetadataResult.timedOut) {
+                handleMetadataResult(quickMetadataResult.duration, 'fast');
+            } else {
+                console.warn('⚠️ Metadata fetch taking longer than expected, starting stream without it');
+                metadataPromise
+                    .then((duration) => handleMetadataResult(duration, 'delayed'))
+                    .catch((err) => {
+                        console.error('⚠️ Metadata promise failed:', err);
+                        handleMetadataResult(null, 'delayed');
+                    });
+            }
+
             const durationLog = expectedDuration ? `${expectedDuration}ms (${Math.round(expectedDuration/1000)}s)` : 'unknown duration';
             console.log(`✅ Got duration: ${durationLog}, starting stream...`);
             console.log('🔧 yt-dlp command:', getYtDlpPath(), ytdlpArgs.slice(0, 5).join(' '), '...');
@@ -291,8 +335,7 @@ async function playWithYtDlp(cleanUrl, message, connection, options = {}) {
             ytdlpProcess = spawn(getYtDlpPath(), ytdlpArgs, {
                 shell: false,
                 windowsHide: true,
-                stdio: ['ignore', 'pipe', 'pipe'],
-                timeout: 30000
+                stdio: ['ignore', 'pipe', 'pipe']
             });
 
             ytdlpProcess.stderr.on('data', (data) => {
@@ -403,13 +446,18 @@ async function playWithYtDlp(cleanUrl, message, connection, options = {}) {
             resource.metadata = {
                 ytdlpProcess,
                 ffmpegProcess,
-                expectedDuration,
+                expectedDuration: expectedDuration !== null ? expectedDuration : pendingExpectedDuration,
                 hasReceivedData: () => dataReceived,
                 cleanup: () => {
                     cleanupProcesses(ytdlpProcess, ffmpegProcess);
                     cleanupFragments();
                 }
             };
+
+            if (pendingExpectedDuration !== null) {
+                resource.metadata.expectedDuration = pendingExpectedDuration;
+                pendingExpectedDuration = null;
+            }
 
             const expectedDurationLog = expectedDuration ? `${expectedDuration}ms` : 'unknown';
             console.log(`📊 Resource metadata set: expectedDuration=${expectedDurationLog}`);
@@ -632,8 +680,8 @@ async function playNext(guildId, lastVideoId = null) {
                 connection.state.status === VoiceConnectionStatus.Destroyed ||
                 connection.state.status === VoiceConnectionStatus.Disconnected;
 
-            if (needNewConnection) {
-                if (connection) {
+          if (needNewConnection) {
+                if (connection && connection.state.status !== VoiceConnectionStatus.Destroyed) { // <-- เพิ่มเงื่อนไขนี้
                     try {
                         connection.destroy();
                     } catch (e) {

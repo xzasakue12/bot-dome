@@ -1,4 +1,5 @@
 services:
+  # --- MongoDB Service (ไม่ต้องแก้ไข) ---
   mongodb:
     image: mongo:7.0
     container_name: my-discord-music-bot-mongo
@@ -16,6 +17,31 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - bot-network
+
+  bot:
+    build: .
+    container_name: my-discord-music-bot
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - MONGO_URI=mongodb://${MONGO_INITDB_ROOT_USERNAME:-bot}:${MONGO_INITDB_ROOT_PASSWORD:-botpassword}@mongodb:27017/
+      
+    # [FIX] เพิ่มส่วนนี้เพื่อเชื่อมไฟล์ .txt เข้าไปใน container
+    volumes:
+      - ./cookies.txt:/app/cookies.txt
+      - ./youtube_cookies.txt:/app/youtube_cookies.txt
+
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    ports:
+      - "50000-50010:50000-50010/udp"
     networks:
       - bot-network
 
