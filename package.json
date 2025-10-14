@@ -10,6 +10,9 @@
     "pm2:stop": "pm2 stop my-discord-music-bot",
     "pm2:restart": "pm2 restart my-discord-music-bot",
     "pm2:delete": "pm2 delete my-discord-music-bot",
+    "control:discord": "node src/control/discordControl.js",
+    "control:gui": "electron src/control/gui/main.js",
+    "control:build": "electron-builder",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -29,5 +32,45 @@
     "discord.js": "^14.21.0",
     "dotenv": "^17.0.0",
     "play-dl": "^1.9.7"
+  },
+  "devDependencies": {
+    "electron": "^31.3.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.botdome.control",
+    "productName": "Discord Bot Control",
+    "directories": {
+      "output": "dist/control"
+    },
+    "files": [
+      "package.json",
+      "src/control/**/*",
+      "node_modules/**/*"
+    ],
+    "extraMetadata": {
+      "main": "src/control/gui/main.js"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "discord-bot-control-${version}-setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Discord Bot Control",
+      "uninstallDisplayName": "Discord Bot Control"
+    }
   }
 }

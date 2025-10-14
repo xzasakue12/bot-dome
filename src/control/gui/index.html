@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Bot Control</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <header>
+        <h1>Discord Bot Control</h1>
+        <p>Manage the Discord music bot without opening a terminal.</p>
+    </header>
+
+    <main>
+        <section class="controls">
+            <div class="button-group">
+                <button id="startBtn">Start</button>
+                <button id="stopBtn">Stop</button>
+                <button id="restartBtn">Restart</button>
+            </div>
+            <div class="button-group secondary">
+                <button id="refreshStatusBtn">Refresh Status</button>
+                <div class="log-controls">
+                    <label for="logLines">Log Lines:</label>
+                    <select id="logLines">
+                        <option value="20">20</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                    </select>
+                    <button id="refreshLogsBtn">Refresh Logs</button>
+                </div>
+            </div>
+            <div class="message" id="message" hidden></div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Status</h2>
+            </div>
+            <pre id="statusOutput" class="panel-body">Loading...</pre>
+        </section>
+
+        <section class="panel">
+            <div class="panel-header">
+                <h2>Logs</h2>
+            </div>
+            <pre id="logsOutput" class="panel-body">Loading...</pre>
+        </section>
+    </main>
+
+    <script src="./renderer.js" defer></script>
+</body>
+</html>

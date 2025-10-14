@@ -1,0 +1,148 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f3f4f6;
+    color: #1f2937;
+}
+
+header {
+    padding: 24px;
+    background: linear-gradient(135deg, #6366f1, #4338ca);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+header h1 {
+    margin: 0 0 8px;
+    font-size: 28px;
+    font-weight: 600;
+}
+
+header p {
+    margin: 0;
+    opacity: 0.85;
+}
+
+main {
+    padding: 24px;
+    display: grid;
+    gap: 20px;
+    grid-template-columns: 1fr;
+}
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.button-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.button-group.secondary {
+    align-items: center;
+    justify-content: space-between;
+}
+
+.log-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+button {
+    background-color: #4338ca;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 18px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 12px rgba(67, 56, 202, 0.25);
+}
+
+button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+select {
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #cbd5f5;
+    background-color: #ffffff;
+    font-size: 14px;
+}
+
+.message {
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    background-color: #e0e7ff;
+    color: #312e81;
+}
+
+.message.error {
+    background-color: #fee2e2;
+    color: #991b1b;
+}
+
+.message.success {
+    background-color: #dcfce7;
+    color: #065f46;
+}
+
+.panel {
+    background-color: #ffffff;
+    border-radius: 10px;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.panel-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.panel-header h2 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.panel-body {
+    margin: 0;
+    padding: 16px 20px;
+    background-color: #111827;
+    color: #d1d5db;
+    font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+    font-size: 13px;
+    white-space: pre-wrap;
+    overflow-y: auto;
+    max-height: 260px;
+}
+
+@media (min-width: 1100px) {
+    main {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .panel:last-of-type {
+        grid-column: span 2;
+    }
+}
