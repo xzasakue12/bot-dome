@@ -16,7 +16,7 @@ function buildYtDlpArgs(cleanUrl, options = {}) {
         '--retries', '10',
         '--fragment-retries', '10',
         '--concurrent-fragments', '3',      // ⭐ เพิ่ม: download หลาย fragment พร้อมกัน
-        '--buffer-size', '16K',             // ✅ ลดลงเป็น 16K (ดีกว่า 256K สำหรับ streaming)
+        '--buffer-size', '256K',            // เพิ่มบัฟเฟอร์เพื่อให้สตรีมเสถียรขึ้น
         
         // ===== Format Selection - Audio Only =====
         '--format', formatSelector, // ✅ Primary audio selection

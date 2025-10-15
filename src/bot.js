@@ -11,6 +11,10 @@ const fs = require('fs');
 const path = require('path');
 const { getYoutubeApiKey } = require('./utils/helpers');
 const dataStore = require('./services/dataStore');
+const { registerSlashCommands } = require('./slash/registerCommands');
+const { handleSlashCommand } = require('./slash/interactionHandler');
+
+const BOT_TOKEN = process.env.TOKEN || process.env.DISCORD_BOT_TOKEN;
 
 if (process.env.YT_COOKIE) {
     config.ytCookie = process.env.YT_COOKIE;
@@ -65,6 +69,11 @@ const commands = loadCommands();
 console.log(`📋 Loaded ${commands.size} commands`);
 client.commands = commands;
 
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+    await handleSlashCommand(interaction, client.commands);
+});
+
 // ส่ง client ให้ player handler
 setClient(client);
 
@@ -74,6 +83,24 @@ client.once('ready', () => {
     console.log('🎵 Music Bot is ready!');
     console.log('✅ Using yt-dlp for YouTube playback');
     client.user.setActivity('!help | Music Bot', { type: 2 });
+
+    const guildId = process.env.DISCORD_GUILD_ID || null;
+    registerSlashCommands({
+        commands: client.commands,
+        token: BOT_TOKEN,
+        clientId: client.user.id,
+        guildId
+    })
+        .then(() => {
+            if (guildId) {
+                console.log(`✅ Slash commands registered for guild ${guildId}`);
+            } else {
+                console.log('✅ Slash commands registered globally');
+            }
+        })
+        .catch((error) => {
+            console.error('❌ Failed to register slash commands:', error);
+        });
 });
 
 // Event: รับข้อความ
@@ -111,7 +138,11 @@ process.on('uncaughtException', (error) => {
 async function startBot() {
     dataStore.loadData();
     await initializePlayer();
-    await client.login(process.env.TOKEN || process.env.DISCORD_BOT_TOKEN);
+    if (!BOT_TOKEN) {
+        console.error('❌ Missing Discord bot token. Set TOKEN หรือ DISCORD_BOT_TOKEN ใน environment.');
+        process.exit(1);
+    }
+    await client.login(BOT_TOKEN);
 }
 
 startBot().catch((error) => {

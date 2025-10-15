@@ -8,11 +8,36 @@
 </head>
 <body>
     <header>
-        <h1>Discord Bot Control</h1>
-        <p>Manage the Discord music bot without opening a terminal.</p>
+        <div class="header-bar">
+            <div class="headline">
+                <h1>Discord Bot Control</h1>
+                <p>Manage the Discord music bot without opening a terminal.</p>
+            </div>
+            <button id="themeToggle" class="theme-toggle" aria-label="Toggle theme">
+                <span class="theme-icon" aria-hidden="true">🌙</span>
+            </button>
+        </div>
     </header>
 
     <main>
+        <section class="overview">
+            <article class="stat-card" id="botStatusCard" data-state="idle">
+                <div class="stat-title">Bot Container</div>
+                <div class="stat-value" id="botStatusValue">—</div>
+                <div class="stat-meta" id="botStatusMeta">Waiting for status...</div>
+            </article>
+            <article class="stat-card" id="mongoStatusCard" data-state="idle">
+                <div class="stat-title">MongoDB</div>
+                <div class="stat-value" id="mongoStatusValue">—</div>
+                <div class="stat-meta" id="mongoStatusMeta">Waiting for status...</div>
+            </article>
+            <article class="stat-card" id="updatedStatusCard" data-state="info">
+                <div class="stat-title">Last Updated</div>
+                <div class="stat-value" id="lastUpdatedValue">—</div>
+                <div class="stat-meta" id="refreshHints">Auto-refresh every 30s</div>
+            </article>
+        </section>
+
         <section class="controls">
             <div class="button-group">
                 <button id="startBtn">Start</button>

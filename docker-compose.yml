@@ -32,7 +32,6 @@ services:
     environment:
       - MONGO_URI=mongodb://${MONGO_INITDB_ROOT_USERNAME:-bot}:${MONGO_INITDB_ROOT_PASSWORD:-botpassword}@mongodb:27017/
       
-    # [FIX] เพิ่มส่วนนี้เพื่อเชื่อมไฟล์ .txt เข้าไปใน container
     volumes:
       - ./cookies.txt:/app/cookies.txt
       - ./youtube_cookies.txt:/app/youtube_cookies.txt

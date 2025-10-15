@@ -1,5 +1,4 @@
 const config = require('../config');
-const { playNext } = require('../handlers/player');
 
 module.exports = {
     name: 'skip',

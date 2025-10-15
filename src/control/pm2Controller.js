@@ -14,21 +14,35 @@ const LOGS_CMD = process.env.CONTROL_PM2_LOGS_CMD;
 function parseCommand(cmd, fallback) {
     if (!cmd || typeof cmd !== 'string') return fallback;
     const tokens = cmd.match(/(?:[^\s"]+|"[^"]*")+/g);
-    if (!tokens) return fallback;
-    return tokens.map(token => token.replace(/^"|"$/g, ''));
+    if (!tokens || tokens.length === 0) return fallback;
+    const normalized = tokens.map(token => token.replace(/^"|"$/g, ''));
+    return {
+        command: normalized[0],
+        args: normalized.slice(1)
+    };
+}
+
+function buildDefault(command, args) {
+    return {
+        command,
+        args
+    };
 }
 
 const commands = {
-    start: parseCommand(START_CMD, ['start', START_TARGET, '--name', APP_NAME]),
-    stop: parseCommand(STOP_CMD, ['stop', APP_NAME]),
-    restart: parseCommand(RESTART_CMD, ['restart', APP_NAME]),
-    status: parseCommand(STATUS_CMD, ['status', APP_NAME]),
-    logs: parseCommand(LOGS_CMD, ['logs', APP_NAME])
+    start: parseCommand(START_CMD, buildDefault('pm2', ['start', START_TARGET, '--name', APP_NAME])),
+    stop: parseCommand(STOP_CMD, buildDefault('pm2', ['stop', APP_NAME])),
+    restart: parseCommand(RESTART_CMD, buildDefault('pm2', ['restart', APP_NAME])),
+    status: parseCommand(STATUS_CMD, buildDefault('pm2', ['status', APP_NAME])),
+    logs: parseCommand(LOGS_CMD, buildDefault('pm2', ['logs', APP_NAME]))
 };
 
-function runPm2(args, { stream = false } = {}) {
+function runPm2(commandEntry, { stream = false } = {}) {
+    const entry = commandEntry || buildDefault('pm2', []);
+    const { command, args } = entry;
+
     return new Promise((resolve, reject) => {
-        const child = spawn('pm2', args, {
+        const child = spawn(command, args, {
             cwd: WORKING_DIR,
             stdio: stream ? 'inherit' : 'pipe'
         });
@@ -36,7 +50,7 @@ function runPm2(args, { stream = false } = {}) {
         if (stream) {
             child.on('close', (code) => {
                 if (code && code !== 0) {
-                    reject(new Error(`pm2 ${args.join(' ')} exited with code ${code}`));
+                    reject(new Error(`${command} ${args.join(' ')} exited with code ${code}`));
                 } else {
                     resolve({ code });
                 }
@@ -62,7 +76,7 @@ function runPm2(args, { stream = false } = {}) {
             if (code === 0) {
                 resolve({ stdout, stderr, code });
             } else {
-                const error = new Error(`pm2 ${args.join(' ')} exited with code ${code}`);
+                const error = new Error(`${command} ${args.join(' ')} exited with code ${code}`);
                 error.stdout = stdout;
                 error.stderr = stderr;
                 error.code = code;
@@ -77,7 +91,7 @@ async function ensureStatus() {
         const result = await runPm2(commands.status);
         return result.stdout;
     } catch (error) {
-        const fallback = await runPm2(['list']);
+        const fallback = await runPm2(buildDefault('pm2', ['list']));
         return fallback.stdout;
     }
 }
@@ -102,19 +116,42 @@ async function getStatus() {
 }
 
 async function getLogs(lines = 100) {
-    const args = [...commands.logs];
-    if (!args.includes('--lines')) {
-        args.push('--lines', String(lines));
+    const { command, args } = commands.logs;
+    if (command === 'pm2') {
+        const fullArgs = [...args];
+        if (!fullArgs.includes('--lines')) {
+            fullArgs.push('--lines', String(lines));
+        }
+        if (!fullArgs.includes('--nostream')) {
+            fullArgs.push('--nostream');
+        }
+        const result = await runPm2({ command, args: fullArgs });
+        return result.stdout || result.stderr;
     }
-    if (!args.includes('--nostream')) {
-        args.push('--nostream');
+
+    const normalizedCommand = command.toLowerCase();
+    if (normalizedCommand === 'docker' || normalizedCommand === 'docker-compose') {
+        const fullArgs = [...args];
+        const logsIndex = fullArgs.findIndex(arg => arg === 'logs');
+        if (logsIndex !== -1) {
+            if (!fullArgs.includes('--tail')) {
+                fullArgs.splice(logsIndex + 1, 0, '--tail', String(lines));
+            }
+            if (!fullArgs.includes('--no-color')) {
+                fullArgs.push('--no-color');
+            }
+        }
+        const result = await runPm2({ command, args: fullArgs });
+        return result.stdout || result.stderr;
     }
-    const result = await runPm2(args);
+
+    const result = await runPm2({ command, args });
     return result.stdout || result.stderr;
 }
 
 function streamLogs() {
-    return spawn('pm2', [...commands.logs], {
+    const { command, args } = commands.logs;
+    return spawn(command, [...args], {
         cwd: WORKING_DIR,
         stdio: 'pipe'
     });
