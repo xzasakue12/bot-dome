@@ -44,6 +44,30 @@ services:
     networks:
       - bot-network
 
+  auth-api:
+    build:
+      context: ./services/auth-api
+    container_name: bot-auth-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_SECURE=${SMTP_SECURE:-false}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - MAIL_FROM=${MAIL_FROM}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - PORT=4000
+      - MONGO_URI=${AUTH_MONGO_URI:-mongodb://${MONGO_INITDB_ROOT_USERNAME:-bot}:${MONGO_INITDB_ROOT_PASSWORD:-botpassword}@mongodb:27017/}
+      - MONGO_DB_NAME=${AUTH_MONGO_DB_NAME:-bot_control}
+      - MONGO_AUTH_COLLECTION=${AUTH_MONGO_COLLECTION:-users}
+    ports:
+      - "${AUTH_API_PORT:-4000}:4000"
+    networks:
+      - bot-network
+
 networks:
   bot-network:
     driver: bridge

@@ -1,4 +1,35 @@
-/* styles moved into view-specific stylesheets */
+:root {
+    color-scheme: light;
+    --bg-color: #f3f4f6;
+    --surface-color: #ffffff;
+    --surface-elevated: #ffffff;
+    --text-color: #111827;
+    --muted-text: #4b5563;
+    --border-color: #e5e7eb;
+    --accent-color: #4338ca;
+    --accent-hover: #4f46e5;
+    --panel-bg: #0f172a;
+    --panel-text: #d1d5db;
+    --message-info-bg: #e0e7ff;
+    --message-info-color: #312e81;
+    --message-success-bg: #dcfce7;
+    --message-success-color: #065f46;
+    --message-error-bg: #fee2e2;
+    --message-error-color: #991b1b;
+    --state-idle-bg: rgba(59, 130, 246, 0.08);
+    --state-idle-border: rgba(59, 130, 246, 0.35);
+    --state-idle-text: #1d4ed8;
+    --state-success-bg: rgba(16, 185, 129, 0.08);
+    --state-success-border: rgba(16, 185, 129, 0.35);
+    --state-success-text: #047857;
+    --state-warning-bg: rgba(245, 158, 11, 0.12);
+    --state-warning-border: rgba(245, 158, 11, 0.4);
+    --state-warning-text: #b45309;
+    --state-danger-bg: rgba(239, 68, 68, 0.12);
+    --state-danger-border: rgba(239, 68, 68, 0.45);
+    --state-danger-text: #b91c1c;
+    --shadow-soft: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
 
 body[data-theme="dark"] {
     color-scheme: dark;
@@ -201,6 +232,14 @@ main {
     display: flex;
     flex-direction: column;
     gap: 16px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.user-only {
+    display: none;
 }
 
 .button-group {
@@ -408,6 +447,13 @@ select {
     display: flex;
     flex-direction: column;
     gap: 16px;
+}
+
+.subscription-user {
+    font-size: 14px;
+    color: var(--muted-text);
+    border-top: 1px solid var(--border-color);
+    padding-top: 12px;
 }
 
 .subscription-form {

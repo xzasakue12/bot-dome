@@ -4,77 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Discord Bot Control</title>
-    <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="./views/dashboard/styles.css">
 </head>
 <body>
-    <header>
-        <div class="header-bar">
-            <div class="headline">
-                <h1>Discord Bot Control</h1>
-                <p>Manage the Discord music bot without opening a terminal.</p>
-            </div>
-            <button id="themeToggle" class="theme-toggle" aria-label="Toggle theme">
-                <span class="theme-icon" aria-hidden="true">🌙</span>
-            </button>
-        </div>
-    </header>
-
-    <main>
-        <section class="overview">
-            <article class="stat-card" id="botStatusCard" data-state="idle">
-                <div class="stat-title">Bot Container</div>
-                <div class="stat-value" id="botStatusValue">—</div>
-                <div class="stat-meta" id="botStatusMeta">Waiting for status...</div>
-            </article>
-            <article class="stat-card" id="mongoStatusCard" data-state="idle">
-                <div class="stat-title">MongoDB</div>
-                <div class="stat-value" id="mongoStatusValue">—</div>
-                <div class="stat-meta" id="mongoStatusMeta">Waiting for status...</div>
-            </article>
-            <article class="stat-card" id="updatedStatusCard" data-state="info">
-                <div class="stat-title">Last Updated</div>
-                <div class="stat-value" id="lastUpdatedValue">—</div>
-                <div class="stat-meta" id="refreshHints">Auto-refresh every 30s</div>
-            </article>
-        </section>
-
-        <section class="controls">
-            <div class="button-group">
-                <button id="startBtn">Start</button>
-                <button id="stopBtn">Stop</button>
-                <button id="restartBtn">Restart</button>
-            </div>
-            <div class="button-group secondary">
-                <button id="refreshStatusBtn">Refresh Status</button>
-                <div class="log-controls">
-                    <label for="logLines">Log Lines:</label>
-                    <select id="logLines">
-                        <option value="20">20</option>
-                        <option value="50" selected>50</option>
-                        <option value="100">100</option>
-                        <option value="200">200</option>
-                    </select>
-                    <button id="refreshLogsBtn">Refresh Logs</button>
-                </div>
-            </div>
-            <div class="message" id="message" hidden></div>
-        </section>
-
-        <section class="panel">
-            <div class="panel-header">
-                <h2>Status</h2>
-            </div>
-            <pre id="statusOutput" class="panel-body">Loading...</pre>
-        </section>
-
-        <section class="panel">
-            <div class="panel-header">
-                <h2>Logs</h2>
-            </div>
-            <pre id="logsOutput" class="panel-body">Loading...</pre>
-        </section>
-    </main>
-
-    <script src="./renderer.js" defer></script>
+    <script type="module" src="./views/dashboard/renderer.js"></script>
 </body>
 </html>

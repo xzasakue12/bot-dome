@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Bot Control</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <header>
+        <div class="header-bar">
+            <div class="headline">
+                <h1>Discord Bot Control</h1>
+                <p>Manage the Discord music bot without opening a terminal.</p>
+            </div>
+            <div class="header-actions">
+                <div id="roleBadge" class="role-badge" aria-live="polite">Role: —</div>
+                <button id="logoutBtn" class="logout-btn" type="button">Log out</button>
+                <button id="themeToggle" class="theme-toggle" aria-label="Toggle theme">
+                    <span class="theme-icon" aria-hidden="true">🌙</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section class="overview admin-only">
+            <article class="stat-card admin-only" id="botStatusCard" data-state="idle">
+                <div class="stat-title">Bot Container</div>
+                <div class="stat-value" id="botStatusValue">—</div>
+                <div class="stat-meta" id="botStatusMeta">Waiting for status...</div>
+            </article>
+            <article class="stat-card admin-only" id="mongoStatusCard" data-state="idle">
+                <div class="stat-title">MongoDB</div>
+                <div class="stat-value" id="mongoStatusValue">—</div>
+                <div class="stat-meta" id="mongoStatusMeta">Waiting for status...</div>
+            </article>
+            <article class="stat-card" id="updatedStatusCard" data-state="info">
+                <div class="stat-title">Last Updated</div>
+                <div class="stat-value" id="lastUpdatedValue">—</div>
+                <div class="stat-meta" id="refreshHints">Auto-refresh every 30s</div>
+            </article>
+        </section>
+
+        <section class="controls admin-only">
+            <div class="button-group admin-only">
+                <button id="startBtn">Start</button>
+                <button id="stopBtn">Stop</button>
+                <button id="restartBtn">Restart</button>
+            </div>
+            <div class="button-group secondary admin-only">
+                <button id="refreshStatusBtn">Refresh Status</button>
+                <div class="log-controls admin-only">
+                    <label for="logLines">Log Lines:</label>
+                    <select id="logLines">
+                        <option value="20">20</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                    </select>
+                    <button id="refreshLogsBtn">Refresh Logs</button>
+                </div>
+            </div>
+            <div class="message" id="message" hidden></div>
+        </section>
+
+        <section class="panel admin-only">
+            <div class="panel-header">
+                <h2>Status</h2>
+            </div>
+            <pre id="statusOutput" class="panel-body">Loading...</pre>
+        </section>
+
+        <section class="panel admin-only">
+            <div class="panel-header">
+                <h2>Logs</h2>
+            </div>
+            <pre id="logsOutput" class="panel-body">Loading...</pre>
+        </section>
+
+        <section class="panel" id="subscriptionPanel" hidden>
+            <div class="panel-header panel-header--between">
+                <h2>Invite Bot</h2>
+                <button id="toggleSubManager" class="secondary-btn admin-only" type="button">Manage</button>
+            </div>
+            <div class="panel-body panel-body--stack">
+                <div id="inviteCard" class="invite-card" hidden>
+                    <h3>Invite the Bot to Your Server</h3>
+                    <p id="inviteDescription">Use the link below to invite the bot to one of your Discord servers.</p>
+                    <a id="inviteLink" class="invite-link" href="https://discord.com/api/oauth2/authorize?client_id=YOUR_BOT_CLIENT_ID&permissions=8&scope=bot%20applications.commands" target="_blank" rel="noreferrer noopener">Open Invite</a>
+                </div>
+                <div id="subscriptionAdmin" class="subscription-admin" hidden>
+                    <h3>Manage Subscriptions</h3>
+                    <form id="subscriptionForm" class="subscription-form">
+                        <label for="subName">Subscriber Name</label>
+                        <input id="subName" type="text" required>
+                        <label for="subInvite">Invite URL</label>
+                        <input id="subInvite" type="url" placeholder="https://discord.com/api/oauth2/authorize..." required>
+                        <label for="subNotes">Notes (optional)</label>
+                        <textarea id="subNotes" rows="3"></textarea>
+                        <button type="submit">Create Subscription</button>
+                    </form>
+                    <table id="subscriptionTable">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Code</th>
+                                <th>Invite</th>
+                                <th>Created</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div id="subscriptionUserInfo" class="subscription-user" hidden>
+                    <p>Only administrators can manage subscriptions. Use the invite button above to add the bot to your own server.</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="./renderer.js" defer></script>
+</body>
+</html>
